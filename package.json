@@ -1,0 +1,22 @@
+{
+  "name": "reactive-correction-graph",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "tsx src/cli/runDemo.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@signal-kernel/async-runtime": "link:../signal-kernel/packages/async-runtime",
+    "@signal-kernel/core": "link:../signal-kernel/packages/core"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^2.0.0"
+  },
+  "packageManager": "pnpm@10.11.0"
+}

@@ -123,4 +123,53 @@ describe("createCorrectionRuntime", () => {
       ),
     ).toBe(false);
   });
+
+  it("updates claims, fact check, rewrite, and final result when draft claims change", async () => {
+    const runtime = createCorrectionRuntime();
+
+    runtime.receive({
+      draft: "Signal-kernel can maybe coordinate async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    const firstOutput = runtime.emit();
+    const traceCountBeforeDraftChange = runtime.trace().length;
+
+    runtime.receive({
+      draft:
+        "Signal-kernel coordinates async correction branches. The updated draft adds a second verifiable claim.",
+    });
+    await runtime.runUntilSettled();
+
+    const secondOutput = runtime.emit();
+    const secondReceiveTrace = runtime.trace().slice(traceCountBeforeDraftChange);
+
+    expect(secondOutput.claims).not.toEqual(firstOutput.claims);
+    expect(secondOutput.finalResult).toBeDefined();
+    expect(secondOutput.finalResult).not.toEqual(firstOutput.finalResult);
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "computed" &&
+          event.type === "completed" &&
+          event.label === "claims",
+      ),
+    ).toBe(true);
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "pending" &&
+          event.label === "factCheck",
+      ),
+    ).toBe(true);
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "pending" &&
+          event.label === "rewriteDraft",
+      ),
+    ).toBe(true);
+  });
 });

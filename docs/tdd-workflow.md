@@ -14,6 +14,10 @@ Runtime behavior tests should use:
 - `runtime.emit()`
 - `runtime.trace()`
 
+Task 7 introduces a pending-state observation boundary:
+
+- `runtime.snapshot()`
+
 Avoid testing internal functions such as computed nodes, resource constructors, or mock model helpers directly unless they become public contracts.
 
 ## TDD Task Format
@@ -197,7 +201,24 @@ Acceptance:
 - trace includes `styleReview pending`.
 - trace does not include `factCheck pending` after the second receive.
 
-### 7. Pending Rewrite Keeps Previous Output
+### 7. Runtime Snapshot Contract
+
+Scenario:
+
+```txt
+Given a runtime that has settled once
+When it receives a new input that starts async work
+Then snapshot() exposes the previous stable final result and current resource statuses
+```
+
+Acceptance:
+
+- `snapshot().stableFinalResult` exists after first settling.
+- after second `receive()` but before `runUntilSettled()`, `snapshot().stableFinalResult` still exists.
+- `snapshot().statuses.rewriteDraft` can report `pending`.
+- `snapshot()` does not require the runtime to settle.
+
+### 8. Pending Rewrite Keeps Previous Output
 
 Scenario:
 

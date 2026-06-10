@@ -212,4 +212,28 @@ describe("createCorrectionRuntime", () => {
       ),
     ).toBe(false);
   });
+
+  it("exposes stable output and resource statuses before settling again", async () => {
+    const runtime = createCorrectionRuntime();
+
+    runtime.receive({
+      draft: "Signal-kernel can maybe coordinate async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    const firstSnapshot = runtime.snapshot();
+
+    runtime.receive({
+      draft:
+        "Signal-kernel coordinates async correction branches. Snapshot should keep the stable result while rewrite is pending.",
+    });
+
+    const pendingSnapshot = runtime.snapshot();
+
+    expect(firstSnapshot.stableFinalResult).toBeDefined();
+    expect(pendingSnapshot.stableFinalResult).toEqual(
+      firstSnapshot.stableFinalResult,
+    );
+    expect(pendingSnapshot.statuses.rewriteDraft).toBe("pending");
+  });
 });

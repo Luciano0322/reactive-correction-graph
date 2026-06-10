@@ -1,4 +1,4 @@
-import { computed, createEffect, signal } from "@signal-kernel/core";
+import { batch, computed, createEffect, signal } from "@signal-kernel/core";
 import { createResource } from "@signal-kernel/async-runtime";
 import {
   mockFactCheckClaims,
@@ -17,6 +17,17 @@ import type {
 import { createTraceCollector, type TraceCollector } from "../trace/createTraceCollector.js";
 import type { TraceEvent } from "../trace/types.js";
 import type { SignalNode } from "./signalNode.js";
+
+type ResourceStatus = "idle" | "pending" | "success" | "error" | "cancelled";
+
+export type CorrectionRuntimeSnapshot = {
+  stableFinalResult?: FinalResult;
+  statuses: {
+    factCheck: ResourceStatus;
+    styleReview: ResourceStatus;
+    rewriteDraft: ResourceStatus;
+  };
+};
 
 type RewriteInput =
   | {
@@ -39,7 +50,8 @@ type RevisedDraftResult = {
 
 export type CorrectionRuntime = SignalNode<
   CorrectionRuntimeInput,
-  CorrectionRuntimeOutput
+  CorrectionRuntimeOutput,
+  CorrectionRuntimeSnapshot
 >;
 
 export function createCorrectionRuntime(
@@ -93,6 +105,15 @@ export function createCorrectionRuntime(
     emit() {
       return graph?.emit() ?? {};
     },
+    snapshot() {
+      return graph?.snapshot() ?? {
+        statuses: {
+          factCheck: "idle",
+          styleReview: "idle",
+          rewriteDraft: "idle",
+        },
+      };
+    },
     trace(): TraceEvent[] {
       return traceCollector.events();
     },
@@ -106,6 +127,7 @@ type RuntimeGraph = {
   allResourcesSettled(): boolean;
   resourceStatuses(): Record<string, unknown>;
   emit(): Partial<CorrectionRuntimeOutput>;
+  snapshot(): CorrectionRuntimeSnapshot;
 };
 
 function createRuntimeGraph(
@@ -289,10 +311,12 @@ function createRuntimeGraph(
 
   return {
     receive(state) {
-      receiveEpochSignal.set((current) => current + 1);
-      draftSignal.set(state.draft);
-      userIntentSignal.set(state.userIntent);
-      styleGuideSignal.set(state.styleGuide);
+      batch(() => {
+        receiveEpochSignal.set((current) => current + 1);
+        draftSignal.set(state.draft);
+        userIntentSignal.set(state.userIntent);
+        styleGuideSignal.set(state.styleGuide);
+      });
     },
     forceReadFinalResult() {
       finalResultComputed.get();
@@ -319,6 +343,16 @@ function createRuntimeGraph(
         correctionPlan: correctionPlanComputed.get(),
         revisedDraft: revisedDraft()?.text,
         finalResult,
+      };
+    },
+    snapshot() {
+      return {
+        stableFinalResult: emittedFinalResult,
+        statuses: {
+          factCheck: factCheckMeta.status(),
+          styleReview: styleReviewMeta.status(),
+          rewriteDraft: rewriteMeta.status(),
+        },
       };
     },
   };

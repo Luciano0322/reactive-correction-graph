@@ -36,4 +36,38 @@ describe("createCorrectionRuntime", () => {
     expect(eventTypes).toContain("resolved");
     expect(eventTypes).toContain("emitted");
   });
+
+  it("settles again after a second receive", async () => {
+    const runtime = createCorrectionRuntime();
+
+    runtime.receive({
+      draft: "Signal-kernel can maybe coordinate async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    runtime.receive({
+      draft: "Signal-kernel can coordinate async correction branches. The second draft should settle too.",
+    });
+    await runtime.runUntilSettled();
+
+    const output = runtime.emit();
+    const trace = runtime.trace();
+
+    const receiveStartedCount = trace.filter(
+      (event) =>
+        event.scope === "runtime" &&
+        event.type === "started" &&
+        event.label === "receive",
+    ).length;
+    const finalResultEmittedCount = trace.filter(
+      (event) =>
+        event.scope === "effect" &&
+        event.type === "emitted" &&
+        event.label === "finalResult",
+    ).length;
+
+    expect(output.finalResult).toBeDefined();
+    expect(receiveStartedCount).toBe(2);
+    expect(finalResultEmittedCount).toBe(2);
+  });
 });

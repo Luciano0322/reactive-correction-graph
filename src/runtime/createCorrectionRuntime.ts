@@ -21,13 +21,21 @@ import type { SignalNode } from "./signalNode.js";
 type RewriteInput =
   | {
       status: "ready";
+      epoch: number;
       draft: string;
       plan: CorrectionPlan;
+      planKey: string;
     }
   | {
       status: "waiting";
       reason: string;
     };
+
+type RevisedDraftResult = {
+  epoch: number;
+  planKey: string;
+  text: string;
+};
 
 export type CorrectionRuntime = SignalNode<
   CorrectionRuntimeInput,
@@ -38,6 +46,7 @@ export function createCorrectionRuntime(
   traceCollector: TraceCollector = createTraceCollector(),
 ): CorrectionRuntime {
   let graph: RuntimeGraph | undefined;
+  let expectedEmissionCount = 0;
 
   return {
     receive(state) {
@@ -50,6 +59,7 @@ export function createCorrectionRuntime(
         graph.receive(state);
       }
 
+      expectedEmissionCount = graph.emittedFinalResultCount() + 1;
       traceCollector.completed("runtime", "receive");
     },
     async runUntilSettled() {
@@ -62,7 +72,10 @@ export function createCorrectionRuntime(
       for (let attempt = 0; attempt < 200; attempt += 1) {
         graph.forceReadFinalResult();
 
-        if (graph.hasEmittedFinalResult() && graph.allResourcesSettled()) {
+        if (
+          graph.emittedFinalResultCount() >= expectedEmissionCount &&
+          graph.allResourcesSettled()
+        ) {
           traceCollector.completed("runtime", "runUntilSettled", {
             attempts: attempt + 1,
           });
@@ -87,7 +100,7 @@ export function createCorrectionRuntime(
 type RuntimeGraph = {
   receive(state: CorrectionRuntimeInput): void;
   forceReadFinalResult(): void;
-  hasEmittedFinalResult(): boolean;
+  emittedFinalResultCount(): number;
   allResourcesSettled(): boolean;
   resourceStatuses(): Record<string, unknown>;
   emit(): Partial<CorrectionRuntimeOutput>;
@@ -100,6 +113,7 @@ function createRuntimeGraph(
   const draftSignal = signal(initialState.draft);
   const userIntentSignal = signal<string | undefined>(initialState.userIntent);
   const styleGuideSignal = signal<string | undefined>(initialState.styleGuide);
+  const receiveEpochSignal = signal(1);
 
   const claimsComputed = computed(() => {
     traceCollector.started("computed", "claims");
@@ -169,7 +183,7 @@ function createRuntimeGraph(
 
   const [revisedDraft, rewriteMeta] = createResource<
     RewriteInput,
-    string | undefined,
+    RevisedDraftResult | undefined,
     unknown
   >({
     input: () => {
@@ -183,8 +197,10 @@ function createRuntimeGraph(
 
       return {
         status: "ready",
+        epoch: receiveEpochSignal.get(),
         draft: draftSignal.get(),
         plan,
+        planKey: correctionPlanKey(plan),
       };
     },
     keepPreviousValueOnPending: true,
@@ -199,7 +215,12 @@ function createRuntimeGraph(
         return undefined;
       }
 
-      return mockRewriteDraft(input, ctx.signal);
+      const text = await mockRewriteDraft(input, ctx.signal);
+      return {
+        epoch: input.epoch,
+        planKey: input.planKey,
+        text,
+      };
     },
   });
 
@@ -207,9 +228,21 @@ function createRuntimeGraph(
     traceCollector.started("computed", "finalResult");
     const plan = correctionPlanComputed.get();
     const draft = revisedDraft();
+    const currentEpoch = receiveEpochSignal.get();
     const factCheck = factCheckResult();
+    const resourcesSettled =
+      factCheckMeta.status() === "success" &&
+      styleReviewMeta.status() === "success" &&
+      rewriteMeta.status() === "success";
 
-    if (!plan || !draft || !factCheck) {
+    if (
+      !plan ||
+      !draft ||
+      draft.epoch !== currentEpoch ||
+      draft.planKey !== correctionPlanKey(plan) ||
+      !factCheck ||
+      !resourcesSettled
+    ) {
       traceCollector.skipped("computed", "finalResult", {
         reason: "waiting for correction plan or revised draft",
       });
@@ -221,7 +254,7 @@ function createRuntimeGraph(
       .map((item) => item.note);
 
     const result: FinalResult = {
-      revisedDraft: draft,
+      revisedDraft: draft.text,
       summary: plan.actions,
       unresolvedIssues,
     };
@@ -233,12 +266,14 @@ function createRuntimeGraph(
   });
 
   let emittedFinalResult: FinalResult | undefined;
+  let emittedFinalResultCount = 0;
 
   createEffect(() => {
     const result = finalResultComputed.get();
     if (!result || result === emittedFinalResult) return;
 
     emittedFinalResult = result;
+    emittedFinalResultCount += 1;
     traceCollector.emitted("effect", "finalResult", {
       unresolvedCount: result.unresolvedIssues.length,
     });
@@ -246,6 +281,7 @@ function createRuntimeGraph(
 
   return {
     receive(state) {
+      receiveEpochSignal.set((current) => current + 1);
       draftSignal.set(state.draft);
       userIntentSignal.set(state.userIntent);
       styleGuideSignal.set(state.styleGuide);
@@ -253,8 +289,8 @@ function createRuntimeGraph(
     forceReadFinalResult() {
       finalResultComputed.get();
     },
-    hasEmittedFinalResult() {
-      return emittedFinalResult !== undefined;
+    emittedFinalResultCount() {
+      return emittedFinalResultCount;
     },
     allResourcesSettled,
     resourceStatuses() {
@@ -273,7 +309,7 @@ function createRuntimeGraph(
         factCheckResult: factCheckResult(),
         styleReviewResult: styleReviewResult(),
         correctionPlan: correctionPlanComputed.get(),
-        revisedDraft: revisedDraft(),
+        revisedDraft: revisedDraft()?.text,
         finalResult,
       };
     },
@@ -336,6 +372,10 @@ function buildCorrectionPlan(input: {
   }
 
   return { actions };
+}
+
+function correctionPlanKey(plan: CorrectionPlan) {
+  return JSON.stringify(plan.actions);
 }
 
 function recordResourceEvent(

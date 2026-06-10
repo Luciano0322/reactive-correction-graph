@@ -2,6 +2,8 @@
 
 CLI scaffold for validating a signal-kernel powered reactive correction runtime.
 
+See [TDD Workflow](./docs/tdd-workflow.md) for the red-green-refactor process used to add runtime behavior.
+
 ## Architecture
 
 ```mermaid

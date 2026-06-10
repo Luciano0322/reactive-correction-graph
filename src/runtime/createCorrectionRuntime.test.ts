@@ -19,4 +19,21 @@ describe("createCorrectionRuntime", () => {
     expect(trace.some((event) => event.type === "resolved")).toBe(true);
     expect(trace.some((event) => event.type === "emitted")).toBe(true);
   });
+
+  it("records the baseline trace lifecycle when a draft settles", async () => {
+    const runtime = createCorrectionRuntime();
+
+    runtime.receive({
+      draft: "Signal-kernel can maybe coordinate async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    const eventTypes = new Set(runtime.trace().map((event) => event.type));
+
+    expect(eventTypes).toContain("changed");
+    expect(eventTypes).toContain("stale");
+    expect(eventTypes).toContain("pending");
+    expect(eventTypes).toContain("resolved");
+    expect(eventTypes).toContain("emitted");
+  });
 });

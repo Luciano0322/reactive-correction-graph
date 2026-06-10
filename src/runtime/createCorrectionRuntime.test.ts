@@ -70,4 +70,57 @@ describe("createCorrectionRuntime", () => {
     expect(receiveStartedCount).toBe(2);
     expect(finalResultEmittedCount).toBe(2);
   });
+
+  it("reruns style review and rewrite without rerunning fact check when only style guide changes", async () => {
+    const runtime = createCorrectionRuntime();
+    const draft = "Signal-kernel can coordinate async correction branches.";
+
+    runtime.receive({ draft });
+    await runtime.runUntilSettled();
+
+    const traceCountBeforeStyleGuideChange = runtime.trace().length;
+
+    runtime.receive({
+      draft,
+      styleGuide: "Use concise tone.",
+    });
+    await runtime.runUntilSettled();
+
+    const secondReceiveTrace = runtime
+      .trace()
+      .slice(traceCountBeforeStyleGuideChange);
+
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "pending" &&
+          event.label === "styleReview",
+      ),
+    ).toBe(true);
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "pending" &&
+          event.label === "rewriteDraft",
+      ),
+    ).toBe(true);
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "pending" &&
+          event.label === "factCheck",
+      ),
+    ).toBe(false);
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "stale" &&
+          event.label === "factCheck",
+      ),
+    ).toBe(false);
+  });
 });

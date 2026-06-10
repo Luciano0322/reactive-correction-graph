@@ -47,11 +47,12 @@ export function createCorrectionRuntime(
 ): CorrectionRuntime {
   let graph: RuntimeGraph | undefined;
   let expectedEmissionCount = 0;
+  let previousState: CorrectionRuntimeInput | undefined;
 
   return {
     receive(state) {
       traceCollector.started("runtime", "receive");
-      recordInputInvalidation(traceCollector, state);
+      recordInputInvalidation(traceCollector, state, previousState);
 
       if (!graph) {
         graph = createRuntimeGraph(state, traceCollector);
@@ -60,6 +61,7 @@ export function createCorrectionRuntime(
       }
 
       expectedEmissionCount = graph.emittedFinalResultCount() + 1;
+      previousState = state;
       traceCollector.completed("runtime", "receive");
     },
     async runUntilSettled() {
@@ -325,16 +327,52 @@ function createRuntimeGraph(
 function recordInputInvalidation(
   traceCollector: TraceCollector,
   state: CorrectionRuntimeInput,
+  previousState: CorrectionRuntimeInput | undefined,
 ) {
-  traceCollector.changed("signal", "draft", {
-    length: state.draft.length,
-  });
-  traceCollector.stale("computed", "claims");
-  traceCollector.stale("resource", "factCheck");
-  traceCollector.stale("resource", "styleReview");
-  traceCollector.stale("computed", "correctionPlan");
-  traceCollector.stale("resource", "rewriteDraft");
-  traceCollector.stale("computed", "finalResult");
+  if (!previousState) {
+    traceCollector.changed("signal", "draft", {
+      length: state.draft.length,
+    });
+    traceCollector.stale("computed", "claims");
+    traceCollector.stale("resource", "factCheck");
+    traceCollector.stale("resource", "styleReview");
+    traceCollector.stale("computed", "correctionPlan");
+    traceCollector.stale("resource", "rewriteDraft");
+    traceCollector.stale("computed", "finalResult");
+    return;
+  }
+
+  const draftChanged = state.draft !== previousState.draft;
+  const styleGuideChanged = state.styleGuide !== previousState.styleGuide;
+  const userIntentChanged = state.userIntent !== previousState.userIntent;
+
+  if (draftChanged) {
+    traceCollector.changed("signal", "draft", {
+      length: state.draft.length,
+    });
+    traceCollector.stale("computed", "claims");
+    traceCollector.stale("resource", "factCheck");
+    traceCollector.stale("resource", "styleReview");
+    traceCollector.stale("computed", "correctionPlan");
+    traceCollector.stale("resource", "rewriteDraft");
+    traceCollector.stale("computed", "finalResult");
+    return;
+  }
+
+  if (styleGuideChanged) {
+    traceCollector.changed("signal", "styleGuide");
+    traceCollector.stale("resource", "styleReview");
+    traceCollector.stale("computed", "correctionPlan");
+    traceCollector.stale("resource", "rewriteDraft");
+    traceCollector.stale("computed", "finalResult");
+  }
+
+  if (userIntentChanged) {
+    traceCollector.changed("signal", "userIntent");
+    traceCollector.stale("computed", "correctionPlan");
+    traceCollector.stale("resource", "rewriteDraft");
+    traceCollector.stale("computed", "finalResult");
+  }
 }
 
 function extractClaims(draft: string): Claim[] {

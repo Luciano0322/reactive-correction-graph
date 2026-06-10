@@ -124,10 +124,16 @@ function createRuntimeGraph(
       count: claims.length,
     });
     return claims;
+  }, areClaimsEqual);
+
+  const claimsSignal = signal<Claim[]>(claimsComputed.get(), areClaimsEqual);
+
+  createEffect(() => {
+    claimsSignal.set(claimsComputed.get());
   });
 
   const [factCheckResult, factCheckMeta] = createResource<Claim[], FactCheckResult>({
-    input: () => claimsComputed.get(),
+    input: () => claimsSignal.get(),
     keepPreviousValueOnPending: true,
     onEvent(event) {
       recordResourceEvent(traceCollector, "factCheck", event);
@@ -347,11 +353,22 @@ function recordInputInvalidation(
   const userIntentChanged = state.userIntent !== previousState.userIntent;
 
   if (draftChanged) {
+    const claimsChanged = !areClaimsEqual(
+      extractClaims(previousState.draft),
+      extractClaims(state.draft),
+    );
+
     traceCollector.changed("signal", "draft", {
       length: state.draft.length,
     });
     traceCollector.stale("computed", "claims");
-    traceCollector.stale("resource", "factCheck");
+    if (claimsChanged) {
+      traceCollector.stale("resource", "factCheck");
+    } else {
+      traceCollector.skipped("resource", "factCheck", {
+        reason: "claims unchanged",
+      });
+    }
     traceCollector.stale("resource", "styleReview");
     traceCollector.stale("computed", "correctionPlan");
     traceCollector.stale("resource", "rewriteDraft");
@@ -386,6 +403,15 @@ function extractClaims(draft: string): Claim[] {
       id: `claim-${index + 1}`,
       text,
     }));
+}
+
+function areClaimsEqual(a: Claim[], b: Claim[]) {
+  if (a.length !== b.length) return false;
+
+  return a.every((claim, index) => {
+    const other = b[index];
+    return other && claim.id === other.id && claim.text === other.text;
+  });
 }
 
 function buildCorrectionPlan(input: {

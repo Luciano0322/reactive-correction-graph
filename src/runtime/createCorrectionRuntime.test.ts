@@ -172,4 +172,44 @@ describe("createCorrectionRuntime", () => {
       ),
     ).toBe(true);
   });
+
+  it("reruns style review without rerunning fact check when draft style changes but claims stay the same", async () => {
+    const runtime = createCorrectionRuntime();
+
+    runtime.receive({
+      draft: "# Draft\n\nSignal-kernel coordinates async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    const firstOutput = runtime.emit();
+    const traceCountBeforeStyleOnlyChange = runtime.trace().length;
+
+    runtime.receive({
+      draft: "# Polished Draft\n\nSignal-kernel coordinates async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    const secondOutput = runtime.emit();
+    const secondReceiveTrace = runtime
+      .trace()
+      .slice(traceCountBeforeStyleOnlyChange);
+
+    expect(secondOutput.claims).toEqual(firstOutput.claims);
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "pending" &&
+          event.label === "styleReview",
+      ),
+    ).toBe(true);
+    expect(
+      secondReceiveTrace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "pending" &&
+          event.label === "factCheck",
+      ),
+    ).toBe(false);
+  });
 });

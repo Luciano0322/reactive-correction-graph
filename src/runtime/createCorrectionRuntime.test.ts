@@ -236,4 +236,38 @@ describe("createCorrectionRuntime", () => {
     );
     expect(pendingSnapshot.statuses.rewriteDraft).toBe("pending");
   });
+
+  it("keeps the previous revised draft readable while a new rewrite is pending", async () => {
+    const runtime = createCorrectionRuntime();
+
+    runtime.receive({
+      draft: "Signal-kernel can maybe coordinate async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    const firstRevisedDraft = runtime.emit().finalResult?.revisedDraft;
+
+    runtime.receive({
+      draft:
+        "Signal-kernel coordinates async correction branches. Pending rewrite output should replace the first draft after settling.",
+    });
+
+    const pendingSnapshot = runtime.snapshot();
+
+    expect(firstRevisedDraft).toBeDefined();
+    expect(pendingSnapshot.statuses.rewriteDraft).toBe("pending");
+    expect(pendingSnapshot.stableFinalResult?.revisedDraft).toBe(
+      firstRevisedDraft,
+    );
+
+    await runtime.runUntilSettled();
+
+    const settledRevisedDraft = runtime.emit().finalResult?.revisedDraft;
+
+    expect(settledRevisedDraft).toBeDefined();
+    expect(settledRevisedDraft).not.toBe(firstRevisedDraft);
+    expect(settledRevisedDraft).toContain(
+      "Pending rewrite output should replace the first draft after settling.",
+    );
+  });
 });

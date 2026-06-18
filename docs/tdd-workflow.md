@@ -18,6 +18,16 @@ Task 7 introduces a pending-state observation boundary:
 
 - `runtime.snapshot()`
 
+Task 9 introduces a CLI smoke-test boundary:
+
+- `pnpm demo ./src/examples/input.md`
+- `.output/result.md`
+- `.output/trace.json`
+- `.output/state.json`
+
+Task 12 introduces a future adapter boundary for LangGraph, but should still use
+plain TypeScript objects and avoid importing LangGraph directly.
+
 Avoid testing internal functions such as computed nodes, resource constructors, or mock model helpers directly unless they become public contracts.
 
 ## TDD Task Format
@@ -232,6 +242,108 @@ Acceptance:
 
 - previous `revisedDraft` is still readable during pending.
 - final `revisedDraft` updates after settling.
+
+### 9. CLI Smoke Test
+
+Scenario:
+
+```txt
+Given an example markdown input
+When the demo CLI runs
+Then it writes the correction result, trace, and state artifacts
+```
+
+Operations:
+
+1. run `pnpm demo ./src/examples/input.md`
+2. inspect `.output/result.md`
+3. parse `.output/trace.json`
+4. parse `.output/state.json`
+
+Acceptance:
+
+- the command exits successfully.
+- `.output/result.md` exists and contains revised draft text.
+- `.output/trace.json` parses to an array.
+- `.output/trace.json` includes a `finalResult emitted` event.
+- `.output/state.json` parses to an object with `finalResult`.
+- the CLI still uses mock runtime behavior only; no LangGraph and no real LLM.
+
+### 10. Latest Receive Wins
+
+Scenario:
+
+```txt
+Given a runtime with async work pending for one draft
+When it receives a second draft before the first draft settles
+Then late async results from the first draft cannot overwrite the latest output
+```
+
+Operations:
+
+1. createCorrectionRuntime()
+2. `runtime.receive()` a first draft with a unique marker
+3. before `runUntilSettled()`, `runtime.receive()` a second draft with a different unique marker
+4. `await runtime.runUntilSettled()`
+5. inspect `runtime.emit()` and `runtime.trace()`
+
+Acceptance:
+
+- `emit().finalResult.revisedDraft` contains the second draft marker.
+- `emit().finalResult.revisedDraft` does not contain the first draft marker.
+- trace contains two `runtime receive started` events.
+- trace does not emit an observable `finalResult` for the obsolete first draft after the second receive.
+
+### 11. Async Error Trace
+
+Scenario:
+
+```txt
+Given a runtime configured with a failing mock async step
+When the runtime tries to settle
+Then the failure is visible in trace and runUntilSettled fails clearly instead of hanging
+```
+
+Operations:
+
+1. createCorrectionRuntime() with an injected mock model that rejects one async step
+2. `runtime.receive()` a draft
+3. `await runtime.runUntilSettled()`
+4. inspect rejection, `runtime.trace()`, and `runtime.snapshot()`
+
+Acceptance:
+
+- `runUntilSettled()` rejects with a clear error that names the failing step.
+- trace includes a `rejected` event for the failing resource.
+- `snapshot().statuses` reports the failing resource as `error`.
+- no `finalResult emitted` event is recorded for the failed run.
+- the runtime does not wait for the timeout when a critical resource has already failed.
+
+### 12. Adapter Boundary
+
+Scenario:
+
+```txt
+Given a plain graph-like state object
+When a correction runtime adapter is invoked
+Then it returns plain output state that a future LangGraph node can consume
+```
+
+Operations:
+
+1. call a plain adapter function with `{ draft, userIntent, styleGuide }`
+2. let the adapter create or use `createCorrectionRuntime()`
+3. wait for the runtime to settle
+4. inspect the returned output object
+
+Acceptance:
+
+- the adapter returns JSON-compatible state.
+- the returned state includes the correction output from `emit()`.
+- the returned state includes `trace()` for observability.
+- the returned state includes `snapshot()` for pending/stable-output metadata.
+- the adapter does not import LangGraph yet.
+- the adapter boundary should make the later LangGraph node a thin wrapper, not a second runtime.
 
 ## How To Ask The Agent
 

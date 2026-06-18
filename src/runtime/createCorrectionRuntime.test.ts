@@ -270,4 +270,40 @@ describe("createCorrectionRuntime", () => {
       "Pending rewrite output should replace the first draft after settling.",
     );
   });
+
+  it("settles the latest receive when a second draft arrives before the first one finishes", async () => {
+    const runtime = createCorrectionRuntime();
+    const firstMarker = "FIRST_PENDING_DRAFT_MARKER";
+    const secondMarker = "SECOND_LATEST_DRAFT_MARKER";
+
+    runtime.receive({
+      draft: `${firstMarker} can maybe coordinate async correction branches.`,
+    });
+    runtime.receive({
+      draft: `${secondMarker} coordinates async correction branches.`,
+    });
+
+    await runtime.runUntilSettled();
+
+    const output = runtime.emit();
+    const finalResult = output.finalResult;
+    const trace = runtime.trace();
+    const receiveStartedCount = trace.filter(
+      (event) =>
+        event.scope === "runtime" &&
+        event.type === "started" &&
+        event.label === "receive",
+    ).length;
+    const finalResultEmittedCount = trace.filter(
+      (event) =>
+        event.scope === "effect" &&
+        event.type === "emitted" &&
+        event.label === "finalResult",
+    ).length;
+
+    expect(finalResult?.revisedDraft).toContain(secondMarker);
+    expect(finalResult?.revisedDraft).not.toContain(firstMarker);
+    expect(receiveStartedCount).toBe(2);
+    expect(finalResultEmittedCount).toBe(1);
+  });
 });

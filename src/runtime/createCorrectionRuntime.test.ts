@@ -306,4 +306,46 @@ describe("createCorrectionRuntime", () => {
     expect(receiveStartedCount).toBe(2);
     expect(finalResultEmittedCount).toBe(1);
   });
+
+  it("rejects clearly and records trace when an async rewrite step fails", async () => {
+    const runtime = createCorrectionRuntime({
+      model: {
+        rewriteDraft: async () => {
+          throw new Error("rewriteDraft exploded");
+        },
+      },
+    });
+
+    runtime.receive({
+      draft: "Signal-kernel coordinates async correction branches.",
+    });
+
+    const startedAt = Date.now();
+
+    await expect(runtime.runUntilSettled()).rejects.toThrow(
+      /rewriteDraft.*exploded/,
+    );
+
+    const elapsedMs = Date.now() - startedAt;
+    const trace = runtime.trace();
+
+    expect(elapsedMs).toBeLessThan(1_000);
+    expect(runtime.snapshot().statuses.rewriteDraft).toBe("error");
+    expect(
+      trace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "rejected" &&
+          event.label === "rewriteDraft",
+      ),
+    ).toBe(true);
+    expect(
+      trace.some(
+        (event) =>
+          event.scope === "effect" &&
+          event.type === "emitted" &&
+          event.label === "finalResult",
+      ),
+    ).toBe(false);
+  });
 });

@@ -54,9 +54,41 @@ export type CorrectionRuntime = SignalNode<
   CorrectionRuntimeSnapshot
 >;
 
+export type CorrectionRuntimeModel = {
+  factCheckClaims: (
+    claims: Claim[],
+    signal?: AbortSignal,
+  ) => Promise<FactCheckResult>;
+  reviewStyle: (
+    input: { draft: string; styleGuide?: string },
+    signal?: AbortSignal,
+  ) => Promise<StyleReviewResult>;
+  rewriteDraft: (
+    input: { draft: string; plan: CorrectionPlan },
+    signal?: AbortSignal,
+  ) => Promise<string>;
+};
+
+export type CorrectionRuntimeOptions = {
+  traceCollector?: TraceCollector;
+  model?: Partial<CorrectionRuntimeModel>;
+};
+
+type FailedResource = {
+  label: string;
+  error?: unknown;
+};
+
+const defaultRuntimeModel: CorrectionRuntimeModel = {
+  factCheckClaims: mockFactCheckClaims,
+  reviewStyle: mockReviewStyle,
+  rewriteDraft: mockRewriteDraft,
+};
+
 export function createCorrectionRuntime(
-  traceCollector: TraceCollector = createTraceCollector(),
+  optionsOrTraceCollector: TraceCollector | CorrectionRuntimeOptions = {},
 ): CorrectionRuntime {
+  const { traceCollector, model } = normalizeRuntimeOptions(optionsOrTraceCollector);
   let graph: RuntimeGraph | undefined;
   let expectedEmissionCount = 0;
   let previousState: CorrectionRuntimeInput | undefined;
@@ -67,7 +99,7 @@ export function createCorrectionRuntime(
       recordInputInvalidation(traceCollector, state, previousState);
 
       if (!graph) {
-        graph = createRuntimeGraph(state, traceCollector);
+        graph = createRuntimeGraph(state, traceCollector, model);
       } else {
         graph.receive(state);
       }
@@ -85,6 +117,16 @@ export function createCorrectionRuntime(
 
       for (let attempt = 0; attempt < 200; attempt += 1) {
         graph.forceReadFinalResult();
+
+        const failedResource = graph.failedResource();
+        if (failedResource) {
+          const error = formatError(failedResource.error);
+          traceCollector.rejected("runtime", "runUntilSettled", {
+            resource: failedResource.label,
+            error,
+          });
+          throw new Error(`${failedResource.label} failed: ${error}`);
+        }
 
         if (
           graph.emittedFinalResultCount() >= expectedEmissionCount &&
@@ -125,6 +167,7 @@ type RuntimeGraph = {
   forceReadFinalResult(): void;
   emittedFinalResultCount(): number;
   allResourcesSettled(): boolean;
+  failedResource(): FailedResource | undefined;
   resourceStatuses(): Record<string, unknown>;
   emit(): Partial<CorrectionRuntimeOutput>;
   snapshot(): CorrectionRuntimeSnapshot;
@@ -133,11 +176,13 @@ type RuntimeGraph = {
 function createRuntimeGraph(
   initialState: CorrectionRuntimeInput,
   traceCollector: TraceCollector,
+  model: CorrectionRuntimeModel,
 ): RuntimeGraph {
   const draftSignal = signal(initialState.draft);
   const userIntentSignal = signal<string | undefined>(initialState.userIntent);
   const styleGuideSignal = signal<string | undefined>(initialState.styleGuide);
   const receiveEpochSignal = signal(1);
+  let failedResource: FailedResource | undefined;
 
   const claimsComputed = computed(() => {
     traceCollector.started("computed", "claims");
@@ -158,7 +203,7 @@ function createRuntimeGraph(
     input: () => claimsSignal.get(),
     keepPreviousValueOnPending: true,
     onEvent(event) {
-      recordResourceEvent(traceCollector, "factCheck", event);
+      recordGraphResourceEvent("factCheck", event);
     },
     run: async (claims, ctx) => {
       if (claims.length === 0) {
@@ -168,7 +213,7 @@ function createRuntimeGraph(
         return { items: [] };
       }
 
-      return mockFactCheckClaims(claims, ctx.signal);
+      return model.factCheckClaims(claims, ctx.signal);
     },
   });
 
@@ -182,9 +227,9 @@ function createRuntimeGraph(
     }),
     keepPreviousValueOnPending: true,
     onEvent(event) {
-      recordResourceEvent(traceCollector, "styleReview", event);
+      recordGraphResourceEvent("styleReview", event);
     },
-    run: async (input, ctx) => mockReviewStyle(input, ctx.signal),
+    run: async (input, ctx) => model.reviewStyle(input, ctx.signal),
   });
 
   const correctionPlanComputed = computed<CorrectionPlan | undefined>(() => {
@@ -235,7 +280,7 @@ function createRuntimeGraph(
     },
     keepPreviousValueOnPending: true,
     onEvent(event) {
-      recordResourceEvent(traceCollector, "rewriteDraft", event);
+      recordGraphResourceEvent("rewriteDraft", event);
     },
     run: async (input, ctx) => {
       if (input.status === "waiting") {
@@ -245,7 +290,7 @@ function createRuntimeGraph(
         return undefined;
       }
 
-      const text = await mockRewriteDraft(input, ctx.signal);
+      const text = await model.rewriteDraft(input, ctx.signal);
       return {
         epoch: input.epoch,
         planKey: input.planKey,
@@ -325,6 +370,9 @@ function createRuntimeGraph(
       return emittedFinalResultCount;
     },
     allResourcesSettled,
+    failedResource() {
+      return failedResource;
+    },
     resourceStatuses() {
       return {
         factCheckStatus: factCheckMeta.status(),
@@ -362,6 +410,42 @@ function createRuntimeGraph(
       (status) => status === "success" || status === "error" || status === "cancelled",
     );
   }
+
+  function recordGraphResourceEvent(label: string, event: ResourceEvent) {
+    recordResourceEvent(traceCollector, label, event);
+
+    if (event.type === "error") {
+      failedResource = {
+        label,
+        error: event.error,
+      };
+    }
+  }
+}
+
+function normalizeRuntimeOptions(
+  optionsOrTraceCollector: TraceCollector | CorrectionRuntimeOptions,
+) {
+  if (isTraceCollector(optionsOrTraceCollector)) {
+    return {
+      traceCollector: optionsOrTraceCollector,
+      model: defaultRuntimeModel,
+    };
+  }
+
+  return {
+    traceCollector: optionsOrTraceCollector.traceCollector ?? createTraceCollector(),
+    model: {
+      ...defaultRuntimeModel,
+      ...optionsOrTraceCollector.model,
+    },
+  };
+}
+
+function isTraceCollector(
+  optionsOrTraceCollector: TraceCollector | CorrectionRuntimeOptions,
+): optionsOrTraceCollector is TraceCollector {
+  return typeof (optionsOrTraceCollector as TraceCollector).started === "function";
 }
 
 function recordInputInvalidation(
@@ -476,10 +560,18 @@ function correctionPlanKey(plan: CorrectionPlan) {
   return JSON.stringify(plan.actions);
 }
 
+type ResourceEvent = {
+  type: string;
+  token: number;
+  ts: number;
+  error?: unknown;
+  reason?: unknown;
+};
+
 function recordResourceEvent(
   traceCollector: TraceCollector,
   label: string,
-  event: { type: string; token: number; ts: number; error?: unknown; reason?: unknown },
+  event: ResourceEvent,
 ) {
   if (event.type === "start") {
     traceCollector.pending("resource", label, {
@@ -509,6 +601,11 @@ function recordResourceEvent(
       reason: event.reason,
     });
   }
+}
+
+function formatError(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function sleep(ms: number) {

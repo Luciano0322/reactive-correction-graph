@@ -345,6 +345,73 @@ Acceptance:
 - the adapter does not import LangGraph yet.
 - the adapter boundary should make the later LangGraph node a thin wrapper, not a second runtime.
 
+### 13. LangGraph Minimal PoC
+
+Scenario:
+
+```txt
+Given a plain graph input state with a markdown draft
+When a minimal LangGraph workflow is invoked
+Then the workflow returns correction output, trace, and snapshot from the signal-kernel runtime
+```
+
+LangGraph concepts to learn in this task:
+
+- `StateGraph`: the graph builder used to define workflow state, nodes, and edges.
+- graph state: the shared object passed through the workflow.
+- node: an async function that receives state and returns partial state.
+- edge: a connection that controls which node runs next.
+- `START` / `END`: special graph boundaries.
+- `compile()`: turns the graph definition into an executable graph.
+- `invoke()`: runs the compiled graph with input state.
+
+Proposed minimal graph:
+
+```txt
+START
+  -> prepareInput
+  -> reactiveCorrection
+  -> finalize
+  -> END
+```
+
+Node responsibilities:
+
+- `prepareInput`: normalize the incoming draft state and add graph-level trace if needed.
+- `reactiveCorrection`: call `invokeCorrectionRuntime(state)` and return its output.
+- `finalize`: mark the graph state as finalized without changing the correction result.
+
+Operations:
+
+1. add the minimal LangGraph dependency.
+2. define a JSON-compatible `GraphState` shape.
+3. implement `createCorrectionGraph()`.
+4. add `prepareInput`, `reactiveCorrection`, and `finalize` nodes.
+5. compile the graph.
+6. invoke the graph with `{ draft, userIntent, styleGuide }`.
+7. inspect the returned graph state.
+
+Acceptance:
+
+- the graph can be invoked from a test.
+- the returned graph state includes `finalResult`.
+- the returned graph state includes `trace`.
+- the returned graph state includes `snapshot`.
+- the returned graph state records that `finalize` ran.
+- `reactiveCorrection` delegates to `invokeCorrectionRuntime()` instead of duplicating runtime logic.
+- this task still uses mock async model functions only.
+- this task does not introduce real LLM calls.
+- this task does not introduce LangChain chains, agents, retrievers, or tools.
+- this task does not introduce UI.
+
+Suggested subtasks:
+
+1. Task 13a: install and verify `@langchain/langgraph`.
+2. Task 13b: create a minimal graph that returns input state unchanged.
+3. Task 13c: add `reactiveCorrection` node using `invokeCorrectionRuntime()`.
+4. Task 13d: add `finalize` state and trace expectation.
+5. Task 13e: optionally route the CLI through the LangGraph graph after the graph behavior is stable.
+
 ## How To Ask The Agent
 
 Good request:

@@ -412,6 +412,172 @@ Suggested subtasks:
 4. Task 13d: add `finalize` state and trace expectation.
 5. Task 13e: optionally route the CLI through the LangGraph graph after the graph behavior is stable.
 
+### 14. Graph-Level Trace
+
+Scenario:
+
+```txt
+Given a minimal LangGraph workflow around the correction runtime
+When the graph is invoked
+Then the returned state includes graph-level trace events separate from the runtime trace
+```
+
+Why this matters:
+
+```txt
+Task 13 proves LangGraph can host the correction runtime.
+Task 14 proves the outer graph is observable without mixing its lifecycle with the inner signal-kernel runtime lifecycle.
+```
+
+Concepts to organize:
+
+- graph trace: events emitted by the LangGraph workflow nodes.
+- runtime trace: events emitted by the signal-kernel correction runtime.
+- outer orchestration: `prepareInput`, `reactiveCorrection`, `finalize`.
+- inner settling: `draft -> claims -> factCheck -> styleReview -> correctionPlan -> rewriteDraft -> finalResult`.
+
+Proposed state fields:
+
+```ts
+type GraphState = {
+  graphTrace?: TraceEvent[];
+  trace?: TraceEvent[];
+}
+```
+
+Trace boundary:
+
+```txt
+graphTrace
+  records LangGraph node lifecycle
+
+trace
+  records signal-kernel runtime lifecycle
+```
+
+Operations:
+
+1. invoke `createCorrectionGraph()`.
+2. inspect the returned graph state.
+3. verify `graphTrace` contains graph node lifecycle events.
+4. verify `trace` still contains runtime lifecycle events.
+5. verify graph-level events and runtime-level events are not collapsed into one undifferentiated list.
+
+Acceptance:
+
+- returned state includes `graphTrace`.
+- `graphTrace` includes `prepareInput started`.
+- `graphTrace` includes `prepareInput completed`.
+- `graphTrace` includes `reactiveCorrection started`.
+- `graphTrace` includes `reactiveCorrection completed`.
+- `graphTrace` includes `finalize started`.
+- `graphTrace` includes `finalize completed`.
+- runtime `trace` still includes `finalResult emitted`.
+- `graphTrace` does not include `finalResult emitted`.
+- runtime `trace` does not need to include graph node lifecycle events.
+- no real LLM calls are introduced.
+- no UI is introduced.
+
+Implementation direction:
+
+- Reuse the existing `TraceEvent` shape.
+- Prefer a tiny graph trace helper over reusing the runtime `TraceCollector` directly if that keeps the boundary clearer.
+- Keep `reactiveCorrection` delegating to `invokeCorrectionRuntime()`.
+- Do not add LangSmith or external observability tooling yet.
+
+Suggested subtasks:
+
+1. Task 14a: add a failing test for graph-level lifecycle trace.
+2. Task 14b: add `graphTrace` to `CorrectionGraphState`.
+3. Task 14c: record graph node started/completed events.
+4. Task 14d: keep runtime `trace` separate and unchanged.
+
+### 15. Optional Local LLM Provider
+
+Scenario:
+
+```txt
+Given a developer has a local open-weight LLM server running
+When the demo is configured to use the local provider
+Then the correction runtime can run with a real local model without requiring an API key
+```
+
+Recommended first provider:
+
+```txt
+Ollama
+```
+
+Why this comes after Task 14:
+
+```txt
+Task 14 keeps the LangGraph and signal-kernel observability boundary clear.
+Task 15 can then swap the mock correction model for a local LLM-backed model without changing the runtime architecture.
+```
+
+Important constraint:
+
+```txt
+The default automated test suite should still use deterministic mock models.
+Local LLM execution should be optional/manual and should not be required for CI or normal development.
+```
+
+Concepts to organize:
+
+- local open-weight LLM: a model running on the developer machine, usually without an API key.
+- provider adapter: a module that implements `CorrectionRuntimeModel`.
+- deterministic tests: tests that keep using mock model functions.
+- manual demo: a command a developer can run when Ollama and a model are available locally.
+
+Proposed environment variables:
+
+```txt
+CORRECTION_MODEL=mock | ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:4b
+```
+
+Suggested first models:
+
+```txt
+Fast local demo:
+- llama3.2:3b
+- qwen3:4b
+
+Better but heavier demo:
+- qwen3:8b
+- gemma3:4b
+```
+
+Operations:
+
+1. keep mock model as the default provider.
+2. add an Ollama-backed `CorrectionRuntimeModel` implementation.
+3. add provider selection based on environment variables.
+4. add a manual demo command that uses Ollama.
+5. document how to run the local LLM demo.
+6. keep normal tests independent from Ollama.
+
+Acceptance:
+
+- default `pnpm test` still uses mock model behavior.
+- default `pnpm demo ./src/examples/input.md` still works without Ollama.
+- a manual Ollama demo command can run when Ollama is available.
+- no API key is required for the Ollama path.
+- no network cloud LLM call is required.
+- local provider implements the existing `CorrectionRuntimeModel` contract.
+- runtime core does not import Ollama-specific code directly.
+- failures from the local provider are surfaced through existing rejected/error trace behavior.
+
+Suggested subtasks:
+
+1. Task 15a: add provider-selection design docs and command examples.
+2. Task 15b: add `createMockCorrectionModel()` so mock provider is explicit.
+3. Task 15c: add `createOllamaCorrectionModel()` behind the `CorrectionRuntimeModel` interface.
+4. Task 15d: add a manual `demo:ollama` command.
+5. Task 15e: add docs for installing Ollama and pulling a small model.
+6. Task 15f: add an optional/manual smoke check that is skipped unless `OLLAMA_MODEL` is set.
+
 ## How To Ask The Agent
 
 Good request:

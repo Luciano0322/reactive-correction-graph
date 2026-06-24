@@ -9,6 +9,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.1",
+    "@langchain/langgraph": "^1.4.5",
     "@signal-kernel/async-runtime": "link:../signal-kernel/packages/async-runtime",
     "@signal-kernel/core": "link:../signal-kernel/packages/core"
   },

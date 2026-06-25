@@ -7,7 +7,7 @@ import type {
   FinalResult,
   StyleReviewResult,
 } from "../schemas/correction.js";
-import type { TraceEvent } from "../trace/types.js";
+import type { TraceEvent, TraceEventType } from "../trace/types.js";
 import {
   invokeCorrectionRuntime,
   type CorrectionRuntimeAdapterState,
@@ -27,11 +27,18 @@ const CorrectionGraphAnnotation = Annotation.Root({
   revisedDraft: Annotation<string | undefined>,
   finalResult: Annotation<FinalResult | undefined>,
   trace: Annotation<TraceEvent[]>,
+  graphTrace: Annotation<TraceEvent[]>({
+    reducer: (left, right) => left.concat(right),
+    default: () => [],
+  }),
   snapshot: Annotation<CorrectionRuntimeSnapshot | undefined>,
 });
 
 export type CorrectionGraphState = typeof CorrectionGraphAnnotation.State;
 export type CorrectionGraphUpdate = typeof CorrectionGraphAnnotation.Update;
+type GraphNodeLabel = "prepareInput" | "reactiveCorrection" | "finalize";
+
+let nextGraphTraceId = 1;
 
 export function createCorrectionGraph() {
   return new StateGraph(CorrectionGraphAnnotation)
@@ -49,18 +56,29 @@ function prepareInputNode(state: CorrectionGraphState): CorrectionGraphUpdate {
   return {
     draft: state.draft.trim(),
     prepared: true,
+    graphTrace: graphLifecycleEvents("prepareInput"),
   };
 }
 
 async function reactiveCorrectionNode(
   state: CorrectionGraphState,
-): Promise<CorrectionRuntimeAdapterState> {
-  return invokeCorrectionRuntime(toRuntimeInput(state));
+): Promise<CorrectionRuntimeAdapterState & CorrectionGraphUpdate> {
+  const started = graphTraceEvent("started", "reactiveCorrection");
+  const correctionState = await invokeCorrectionRuntime(toRuntimeInput(state));
+
+  return {
+    ...correctionState,
+    graphTrace: [
+      started,
+      graphTraceEvent("completed", "reactiveCorrection"),
+    ],
+  };
 }
 
 function finalizeNode(): CorrectionGraphUpdate {
   return {
     finalized: true,
+    graphTrace: graphLifecycleEvents("finalize"),
   };
 }
 
@@ -69,5 +87,25 @@ function toRuntimeInput(state: CorrectionGraphState): CorrectionRuntimeInput {
     draft: state.draft,
     userIntent: state.userIntent,
     styleGuide: state.styleGuide,
+  };
+}
+
+function graphLifecycleEvents(label: GraphNodeLabel): TraceEvent[] {
+  return [
+    graphTraceEvent("started", label),
+    graphTraceEvent("completed", label),
+  ];
+}
+
+function graphTraceEvent(
+  type: Extract<TraceEventType, "started" | "completed">,
+  label: GraphNodeLabel,
+): TraceEvent {
+  return {
+    id: `graph-trace-${nextGraphTraceId++}`,
+    at: Date.now(),
+    scope: "graph",
+    type,
+    label,
   };
 }

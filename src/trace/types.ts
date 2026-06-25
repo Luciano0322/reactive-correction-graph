@@ -1,5 +1,6 @@
 export type TraceScope =
   | "cli"
+  | "graph"
   | "runtime"
   | "signal"
   | "computed"

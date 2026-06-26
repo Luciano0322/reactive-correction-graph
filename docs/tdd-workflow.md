@@ -671,6 +671,201 @@ Suggested subtasks:
 3. Task 17c: keep/extend provider tests for empty or invalid Ollama JSON.
 4. Task 17d: update local LLM validation docs.
 
+### 18. Provider Diagnostics Trace
+
+Scenario:
+
+```txt
+Given provider output contains ignored or normalized fact-check items
+When the runtime settles
+Then trace records what was ignored or normalized without changing the final result contract
+```
+
+Why this comes after Task 17:
+
+```txt
+Task 16 and Task 17 make provider output safer.
+Task 18 makes those safety decisions observable.
+```
+
+Behaviors to cover:
+
+```txt
+Missing coverage:
+  A provider omits fact-check results for extracted claims.
+
+Unknown claim ids:
+  A provider returns a fact-check result for a claim id that does not exist.
+```
+
+Acceptance:
+
+- missing fact-check coverage records a trace event.
+- unknown `claimId` records a trace event.
+- trace metadata includes the affected claim id.
+- `finalResult` behavior remains the same as Task 16 and Task 17.
+- unknown ids still do not appear in `factCheckResult.items`.
+- no real Ollama call is used in automated tests.
+
+Suggested subtasks:
+
+1. Task 18a: add a failing runtime test for missing coverage trace diagnostics.
+2. Task 18b: emit diagnostics when missing claim coverage is normalized.
+3. Task 18c: add a failing runtime test for unknown claim id trace diagnostics.
+4. Task 18d: emit diagnostics when unknown claim ids are ignored.
+
+### 19. Claim Budget / Compression
+
+Scenario:
+
+```txt
+Given a long draft with more possible claims than the runtime should check
+When the runtime extracts claims
+Then it applies an explicit claim budget and records that the draft was truncated for fact-checking
+```
+
+Why this matters:
+
+```txt
+Unknown claim ids are provider output errors.
+Claim budget is a different problem: the runtime intentionally limits how many claims it sends to factCheck.
+That limit should be explicit and observable.
+```
+
+Current behavior to clarify:
+
+```txt
+extractClaims currently limits claims with a fixed slice.
+Task 19 turns that implicit limit into a visible runtime contract.
+```
+
+Acceptance:
+
+- claim budget is named explicitly in code or runtime options.
+- extracted claims do not exceed the budget.
+- trace records when additional possible claims were omitted because of the budget.
+- state or trace makes it clear that fact-check coverage only applies to extracted claims.
+- existing short-draft behavior does not change.
+- no LLM provider changes are required.
+
+Suggested subtasks:
+
+1. Task 19a: add a failing runtime test for a draft with more claims than the budget.
+2. Task 19b: introduce an explicit claim budget constant or runtime option.
+3. Task 19c: record trace metadata when claim extraction is truncated.
+4. Task 19d: document the difference between claim budget and provider coverage.
+
+### 20. Graph CLI Path
+
+Scenario:
+
+```txt
+Given the demo CLI is run in graph mode
+When it receives markdown input
+Then it invokes the LangGraph workflow and writes graph trace plus runtime trace artifacts
+```
+
+Why this comes after runtime hardening:
+
+```txt
+The runtime output is now safer and more diagnosable.
+Task 20 moves that behavior into a visible LangGraph demo path.
+```
+
+Proposed command:
+
+```bash
+pnpm demo:graph ./src/examples/input.md
+```
+
+Acceptance:
+
+- `pnpm demo:graph ./src/examples/input.md` exits successfully.
+- `.output/result.md` still contains the revised draft.
+- `.output/state.json` includes `graphTrace`.
+- `.output/state.json` includes runtime `trace`.
+- `graphTrace` includes graph node lifecycle events.
+- runtime trace still includes `finalResult emitted`.
+- `reactiveCorrection` still delegates to `invokeCorrectionRuntime()`.
+- no real LLM call is required for this task.
+
+Suggested subtasks:
+
+1. Task 20a: add a CLI smoke test for graph mode.
+2. Task 20b: add `demo:graph` script.
+3. Task 20c: route graph mode through `createCorrectionGraph()`.
+4. Task 20d: ensure output artifacts preserve both graph and runtime observability.
+
+### 21. Demo Narrative Fixture
+
+Scenario:
+
+```txt
+Given a demo markdown fixture with clear factual, style, and intent signals
+When the demo runs
+Then the output makes the reactive correction workflow easy to explain
+```
+
+Why this matters:
+
+```txt
+The current fixture is good for scaffolding.
+A technical article or external demo needs an input that makes the runtime behavior obvious.
+```
+
+Acceptance:
+
+- add or update a demo input fixture designed for explanation.
+- mock provider output remains deterministic.
+- result markdown clearly shows correction summary and unresolved issues.
+- trace remains understandable for article screenshots or excerpts.
+- README or docs explain which fixture to use for demos.
+- no UI is introduced.
+
+Suggested subtasks:
+
+1. Task 21a: draft a clearer demo markdown fixture.
+2. Task 21b: add a CLI smoke test for the fixture.
+3. Task 21c: update README or docs with how to inspect the demo artifacts.
+
+### 22. LangGraph + Ollama Manual Demo
+
+Scenario:
+
+```txt
+Given Ollama is available locally
+When the graph demo runs with the Ollama provider
+Then the output includes graph trace, runtime trace, and local LLM correction output
+```
+
+Important constraint:
+
+```txt
+This remains a manual demo path.
+It should not be required for normal `pnpm test` or CI.
+```
+
+Proposed command:
+
+```bash
+OLLAMA_MODEL=llama3.2:3b pnpm demo:graph --provider ollama ./src/examples/input.md
+```
+
+Acceptance:
+
+- graph demo can select the Ollama provider.
+- output includes `graphTrace`.
+- output includes runtime `trace`.
+- output includes `finalResult` when the local model returns usable output.
+- provider failures remain visible through rejected trace events.
+- docs explain this as a manual local LLM demo, not an automated test requirement.
+
+Suggested subtasks:
+
+1. Task 22a: add provider selection to graph CLI path.
+2. Task 22b: document a manual LangGraph + Ollama command.
+3. Task 22c: optionally add a skipped manual smoke test gated by `OLLAMA_MODEL`.
+
 ## How To Ask The Agent
 
 Good request:

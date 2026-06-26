@@ -352,6 +352,53 @@ describe("createCorrectionRuntime", () => {
     ).toBe(false);
   });
 
+  it("normalizes missing fact-check coverage into unresolved issues", async () => {
+    const runtime = createCorrectionRuntime({
+      model: {
+        factCheckClaims: async (claims) => ({
+          items: [
+            {
+              claimId: claims[0]?.id ?? "claim-1",
+              verdict: "supported",
+              note: "The provider only checked the first claim.",
+            },
+          ],
+        }),
+      },
+    });
+
+    runtime.receive({
+      draft: [
+        "Signal-kernel coordinates async correction branches.",
+        "The runtime keeps unrelated style work from rerunning.",
+        "The demo should expose incomplete provider output.",
+      ].join(" "),
+    });
+    await runtime.runUntilSettled();
+
+    const output = runtime.emit();
+    const claims = output.claims ?? [];
+    const factCheckItems = output.factCheckResult?.items ?? [];
+    const missingCoverageItems = factCheckItems.filter(
+      (item) => item.verdict === "needs-review",
+    );
+
+    expect(claims).toHaveLength(3);
+    expect(factCheckItems).toHaveLength(claims.length);
+    expect(missingCoverageItems?.map((item) => item.claimId)).toEqual([
+      "claim-2",
+      "claim-3",
+    ]);
+    expect(
+      missingCoverageItems?.every((item) =>
+        item.note.includes("Provider did not return a fact-check result"),
+      ),
+    ).toBe(true);
+    expect(output.finalResult?.unresolvedIssues).toEqual(
+      expect.arrayContaining(missingCoverageItems.map((item) => item.note)),
+    );
+  });
+
   it("uses the configured settle timeout when slow async work is still pending", async () => {
     const runtime = createCorrectionRuntime({
       model: createDelayedCorrectionModel(50),

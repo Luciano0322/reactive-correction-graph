@@ -227,7 +227,8 @@ function createRuntimeGraph(
         return { items: [] };
       }
 
-      return model.factCheckClaims(claims, ctx.signal);
+      const result = await model.factCheckClaims(claims, ctx.signal);
+      return normalizeFactCheckCoverage(claims, result);
     },
   });
 
@@ -583,6 +584,26 @@ function buildCorrectionPlan(input: {
   }
 
   return { actions };
+}
+
+function normalizeFactCheckCoverage(
+  claims: Claim[],
+  result: FactCheckResult,
+): FactCheckResult {
+  const coveredClaimIds = new Set(result.items.map((item) => item.claimId));
+  const missingItems = claims
+    .filter((claim) => !coveredClaimIds.has(claim.id))
+    .map((claim) => ({
+      claimId: claim.id,
+      verdict: "needs-review" as const,
+      note: `Provider did not return a fact-check result for ${claim.id}.`,
+    }));
+
+  if (missingItems.length === 0) return result;
+
+  return {
+    items: [...result.items, ...missingItems],
+  };
 }
 
 function correctionPlanKey(plan: CorrectionPlan) {

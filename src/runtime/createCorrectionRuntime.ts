@@ -1,10 +1,6 @@
 import { batch, computed, createEffect, signal } from "@signal-kernel/core";
 import { createResource } from "@signal-kernel/async-runtime";
-import {
-  mockFactCheckClaims,
-  mockReviewStyle,
-  mockRewriteDraft,
-} from "../llm/mockCorrectionModel.js";
+import { createMockCorrectionModel } from "../llm/mockCorrectionModel.js";
 import type {
   Claim,
   CorrectionPlan,
@@ -72,6 +68,8 @@ export type CorrectionRuntimeModel = {
 export type CorrectionRuntimeOptions = {
   traceCollector?: TraceCollector;
   model?: Partial<CorrectionRuntimeModel>;
+  settleTimeoutMs?: number;
+  settlePollMs?: number;
 };
 
 type FailedResource = {
@@ -80,15 +78,17 @@ type FailedResource = {
 };
 
 const defaultRuntimeModel: CorrectionRuntimeModel = {
-  factCheckClaims: mockFactCheckClaims,
-  reviewStyle: mockReviewStyle,
-  rewriteDraft: mockRewriteDraft,
+  ...createMockCorrectionModel(),
 };
+
+const DEFAULT_SETTLE_TIMEOUT_MS = 2_000;
+const DEFAULT_SETTLE_POLL_MS = 10;
 
 export function createCorrectionRuntime(
   optionsOrTraceCollector: TraceCollector | CorrectionRuntimeOptions = {},
 ): CorrectionRuntime {
-  const { traceCollector, model } = normalizeRuntimeOptions(optionsOrTraceCollector);
+  const { traceCollector, model, settleTimeoutMs, settlePollMs } =
+    normalizeRuntimeOptions(optionsOrTraceCollector);
   let graph: RuntimeGraph | undefined;
   let expectedEmissionCount = 0;
   let previousState: CorrectionRuntimeInput | undefined;
@@ -115,7 +115,12 @@ export function createCorrectionRuntime(
 
       traceCollector.started("runtime", "runUntilSettled");
 
-      for (let attempt = 0; attempt < 200; attempt += 1) {
+      const startedAt = Date.now();
+      const deadline = startedAt + settleTimeoutMs;
+      let attempts = 0;
+
+      while (true) {
+        attempts += 1;
         graph.forceReadFinalResult();
 
         const failedResource = graph.failedResource();
@@ -133,15 +138,24 @@ export function createCorrectionRuntime(
           graph.allResourcesSettled()
         ) {
           traceCollector.completed("runtime", "runUntilSettled", {
-            attempts: attempt + 1,
+            attempts,
           });
           return;
         }
 
-        await sleep(10);
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+          break;
+        }
+
+        await sleep(Math.min(settlePollMs, remainingMs));
       }
 
-      traceCollector.rejected("runtime", "runUntilSettled", graph.resourceStatuses());
+      traceCollector.rejected("runtime", "runUntilSettled", {
+        ...graph.resourceStatuses(),
+        attempts,
+        timeoutMs: settleTimeoutMs,
+      });
       throw new Error("Correction runtime did not settle before timeout");
     },
     emit() {
@@ -430,6 +444,8 @@ function normalizeRuntimeOptions(
     return {
       traceCollector: optionsOrTraceCollector,
       model: defaultRuntimeModel,
+      settleTimeoutMs: DEFAULT_SETTLE_TIMEOUT_MS,
+      settlePollMs: DEFAULT_SETTLE_POLL_MS,
     };
   }
 
@@ -439,7 +455,20 @@ function normalizeRuntimeOptions(
       ...defaultRuntimeModel,
       ...optionsOrTraceCollector.model,
     },
+    settleTimeoutMs: normalizePositiveMs(
+      optionsOrTraceCollector.settleTimeoutMs,
+      DEFAULT_SETTLE_TIMEOUT_MS,
+    ),
+    settlePollMs: normalizePositiveMs(
+      optionsOrTraceCollector.settlePollMs,
+      DEFAULT_SETTLE_POLL_MS,
+    ),
   };
+}
+
+function normalizePositiveMs(value: number | undefined, fallback: number) {
+  if (!Number.isFinite(value) || value === undefined || value <= 0) return fallback;
+  return Math.trunc(value);
 }
 
 function isTraceCollector(

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createCorrectionRuntime } from "./createCorrectionRuntime.js";
+import {
+  createCorrectionRuntime,
+  type CorrectionRuntimeModel,
+} from "./createCorrectionRuntime.js";
 
 describe("createCorrectionRuntime", () => {
   it("settles a draft into output and records resource trace events", async () => {
@@ -348,4 +351,76 @@ describe("createCorrectionRuntime", () => {
       ),
     ).toBe(false);
   });
+
+  it("uses the configured settle timeout when slow async work is still pending", async () => {
+    const runtime = createCorrectionRuntime({
+      model: createDelayedCorrectionModel(50),
+      settleTimeoutMs: 10,
+      settlePollMs: 2,
+    });
+
+    runtime.receive({
+      draft: "Signal-kernel coordinates async correction branches.",
+    });
+
+    await expect(runtime.runUntilSettled()).rejects.toThrow(
+      /did not settle before timeout/,
+    );
+  });
+
+  it("can wait longer for a slow local model provider", async () => {
+    const runtime = createCorrectionRuntime({
+      model: createDelayedCorrectionModel(50),
+      settleTimeoutMs: 2_000,
+      settlePollMs: 5,
+    });
+
+    runtime.receive({
+      draft: "Signal-kernel coordinates async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    expect(runtime.emit().finalResult?.revisedDraft).toContain(
+      "Delayed rewrite",
+    );
+  });
 });
+
+function createDelayedCorrectionModel(delayMs: number): CorrectionRuntimeModel {
+  return {
+    async factCheckClaims(claims) {
+      await sleepForTest(delayMs);
+      return {
+        items: claims.map((claim) => ({
+          claimId: claim.id,
+          verdict: "supported" as const,
+          note: "Delayed fact check completed.",
+        })),
+      };
+    },
+    async reviewStyle() {
+      await sleepForTest(delayMs);
+      return {
+        tone: "clear",
+        suggestions: ["Delayed style review completed."],
+      };
+    },
+    async rewriteDraft(input) {
+      await sleepForTest(delayMs);
+      return [
+        input.draft,
+        "",
+        "---",
+        "",
+        "Delayed rewrite",
+        ...input.plan.actions.map((action) => `- ${action}`),
+      ].join("\n");
+    },
+  };
+}
+
+function sleepForTest(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}

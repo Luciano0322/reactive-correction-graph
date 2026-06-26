@@ -4,6 +4,7 @@ import type {
   FactCheckResult,
   StyleReviewResult,
 } from "../schemas/correction.js";
+import type { CorrectionRuntimeModel } from "../runtime/createCorrectionRuntime.js";
 
 const MOCK_DELAY_MS = 20;
 
@@ -64,4 +65,12 @@ export async function mockRewriteDraft(
   const planSummary = input.plan.actions.map((action) => `- ${action}`).join("\n");
 
   return `${input.draft.trim()}\n\n---\n\nMock correction notes:\n${planSummary}`;
+}
+
+export function createMockCorrectionModel(): CorrectionRuntimeModel {
+  return {
+    factCheckClaims: mockFactCheckClaims,
+    reviewStyle: mockReviewStyle,
+    rewriteDraft: mockRewriteDraft,
+  };
 }

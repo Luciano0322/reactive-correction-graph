@@ -2,12 +2,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createCorrectionRuntime } from "../runtime/createCorrectionRuntime.js";
 import { createTraceCollector } from "../trace/createTraceCollector.js";
+import { createCorrectionModelFromEnv } from "../llm/createCorrectionModel.js";
 
 async function main() {
-  const inputPath = process.argv[2];
+  const { inputPath, provider } = parseArgs(process.argv.slice(2));
+  const selectedProvider = provider ?? process.env.CORRECTION_MODEL ?? "mock";
 
   if (!inputPath) {
-    console.error("Usage: pnpm demo ./src/examples/input.md");
+    console.error("Usage: pnpm demo [--provider mock|ollama] ./src/examples/input.md");
     process.exitCode = 1;
     return;
   }
@@ -19,9 +21,18 @@ async function main() {
   const traceCollector = createTraceCollector();
   traceCollector.started("cli", "demo", {
     inputPath,
+    provider: selectedProvider,
   });
 
-  const runtime = createCorrectionRuntime(traceCollector);
+  const model = createCorrectionModelFromEnv({
+    ...process.env,
+    ...(provider ? { CORRECTION_MODEL: provider } : {}),
+  });
+  const runtime = createCorrectionRuntime({
+    traceCollector,
+    model,
+    ...settleOptionsForProvider(selectedProvider),
+  });
   runtime.receive({ draft });
   await runtime.runUntilSettled();
 
@@ -48,6 +59,49 @@ async function main() {
   console.log("- ./.output/result.md");
   console.log("- ./.output/trace.json");
   console.log("- ./.output/state.json");
+}
+
+function settleOptionsForProvider(provider: string) {
+  if (provider !== "ollama") return {};
+
+  return {
+    settleTimeoutMs: parsePositiveInteger(
+      process.env.CORRECTION_SETTLE_TIMEOUT_MS,
+      120_000,
+    ),
+    settlePollMs: parsePositiveInteger(process.env.CORRECTION_SETTLE_POLL_MS, 100),
+  };
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  if (!value) return fallback;
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+
+  return Math.trunc(parsed);
+}
+
+function parseArgs(args: string[]) {
+  let provider: string | undefined;
+  const positional: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "--provider") {
+      provider = args[index + 1];
+      index += 1;
+      continue;
+    }
+
+    positional.push(arg);
+  }
+
+  return {
+    inputPath: positional[0],
+    provider,
+  };
 }
 
 function renderResultMarkdown(state: ReturnType<ReturnType<typeof createCorrectionRuntime>["emit"]>) {

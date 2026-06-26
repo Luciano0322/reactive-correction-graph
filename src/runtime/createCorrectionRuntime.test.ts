@@ -399,6 +399,60 @@ describe("createCorrectionRuntime", () => {
     );
   });
 
+  it("ignores unknown fact-check claim ids without counting them as coverage", async () => {
+    const runtime = createCorrectionRuntime({
+      model: {
+        factCheckClaims: async (claims) => ({
+          items: [
+            {
+              claimId: claims[0]?.id ?? "claim-1",
+              verdict: "supported",
+              note: "The first claim is valid.",
+            },
+            {
+              claimId: "claim-999",
+              verdict: "needs-review",
+              note: "This provider result points at an unknown claim.",
+            },
+          ],
+        }),
+      },
+    });
+
+    runtime.receive({
+      draft: [
+        "Signal-kernel coordinates async correction branches.",
+        "The runtime preserves valid provider fact-check items.",
+        "Unknown provider claim ids should not create correction actions.",
+      ].join(" "),
+    });
+    await runtime.runUntilSettled();
+
+    const output = runtime.emit();
+    const factCheckItems = output.factCheckResult?.items ?? [];
+    const factCheckClaimIds = factCheckItems.map((item) => item.claimId);
+
+    expect(factCheckClaimIds).toEqual(["claim-1", "claim-2", "claim-3"]);
+    expect(factCheckItems.find((item) => item.claimId === "claim-1")).toEqual(
+      expect.objectContaining({
+        verdict: "supported",
+        note: "The first claim is valid.",
+      }),
+    );
+    expect(factCheckClaimIds).not.toContain("claim-999");
+    expect(output.finalResult?.summary).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("claim-999"),
+        expect.stringContaining("unknown claim"),
+      ]),
+    );
+    expect(output.finalResult?.unresolvedIssues).not.toEqual(
+      expect.arrayContaining([
+        "This provider result points at an unknown claim.",
+      ]),
+    );
+  });
+
   it("uses the configured settle timeout when slow async work is still pending", async () => {
     const runtime = createCorrectionRuntime({
       model: createDelayedCorrectionModel(50),

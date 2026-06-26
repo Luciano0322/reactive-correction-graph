@@ -95,6 +95,33 @@ Ollama provider:
 pnpm demo --provider ollama ./src/examples/input.md
 ```
 
+## Validating Local Demo Output
+
+A successful command only proves that the local provider path ran to completion.
+Check the generated artifacts before treating the result as semantically useful.
+
+Inspect `.output/result.md`:
+
+- `## Revised Draft` should contain the rewritten markdown.
+- `## Correction Summary` should explain why the draft changed.
+- `## Unresolved Issues` should list claims that still need review.
+
+Inspect `.output/state.json`:
+
+- `finalResult` should exist.
+- `claims` should contain the extracted claims.
+- `factCheckResult.items` should cover every extracted claim.
+- if a provider omits a claim, the runtime normalizes that missing coverage into
+  a `needs-review` item.
+- unknown provider `claimId` values are ignored and do not count as coverage.
+
+Inspect `.output/trace.json`:
+
+- successful runs should include resource `pending` and `resolved` events.
+- successful runs should include `effect finalResult emitted`.
+- hard provider failures, such as invalid JSON, should include a resource
+  `rejected` event and should not emit a final result.
+
 ## Manual Smoke Test
 
 The manual Ollama smoke test is skipped unless `OLLAMA_MODEL` is set.

@@ -590,7 +590,9 @@ function normalizeFactCheckCoverage(
   claims: Claim[],
   result: FactCheckResult,
 ): FactCheckResult {
-  const coveredClaimIds = new Set(result.items.map((item) => item.claimId));
+  const validClaimIds = new Set(claims.map((claim) => claim.id));
+  const validItems = result.items.filter((item) => validClaimIds.has(item.claimId));
+  const coveredClaimIds = new Set(validItems.map((item) => item.claimId));
   const missingItems = claims
     .filter((claim) => !coveredClaimIds.has(claim.id))
     .map((claim) => ({
@@ -599,10 +601,12 @@ function normalizeFactCheckCoverage(
       note: `Provider did not return a fact-check result for ${claim.id}.`,
     }));
 
-  if (missingItems.length === 0) return result;
+  if (missingItems.length === 0 && validItems.length === result.items.length) {
+    return result;
+  }
 
   return {
-    items: [...result.items, ...missingItems],
+    items: [...validItems, ...missingItems],
   };
 }
 

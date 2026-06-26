@@ -79,6 +79,41 @@ describe("createCorrectionModelFromEnv", () => {
       ]),
     ).rejects.toThrow(/Ollama factCheckClaims.*empty response.*qwen3:4b/);
   });
+
+  it("rejects through the runtime trace when Ollama returns invalid JSON", async () => {
+    const model = createOllamaCorrectionModel({
+      model: "qwen3:4b",
+      fetch: createInvalidFactCheckJsonFetch(),
+    });
+    const runtime = createCorrectionRuntime({ model });
+
+    runtime.receive({
+      draft: "Signal-kernel coordinates async correction branches.",
+    });
+
+    await expect(runtime.runUntilSettled()).rejects.toThrow(
+      /factCheck.*invalid JSON.*qwen3:4b/,
+    );
+
+    const trace = runtime.trace();
+
+    expect(
+      trace.some(
+        (event) =>
+          event.scope === "resource" &&
+          event.type === "rejected" &&
+          event.label === "factCheck",
+      ),
+    ).toBe(true);
+    expect(
+      trace.some(
+        (event) =>
+          event.scope === "effect" &&
+          event.type === "emitted" &&
+          event.label === "finalResult",
+      ),
+    ).toBe(false);
+  });
 });
 
 type FakeOllamaRequest = {
@@ -122,6 +157,28 @@ function createFakeOllamaFetch() {
   return { fetch, requests };
 }
 
+function createInvalidFactCheckJsonFetch(): typeof globalThis.fetch {
+  return async (input, init) => {
+    const body = JSON.parse(String(init?.body)) as {
+      prompt: string;
+    };
+    const task = inferTask(body.prompt);
+
+    return new Response(
+      JSON.stringify({
+        response: invalidJsonResponseForTask(task),
+        done: true,
+      }),
+      {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      },
+    );
+  };
+}
+
 function inferTask(prompt: string): FakeOllamaRequest["task"] {
   if (prompt.includes("Task: factCheckClaims")) return "factCheckClaims";
   if (prompt.includes("Task: reviewStyle")) return "reviewStyle";
@@ -158,4 +215,9 @@ function responseForTask(task: FakeOllamaRequest["task"]) {
     "Local correction notes:",
     "- Review claim claim-1: Ollama local verifier flagged this claim for review.",
   ].join("\n");
+}
+
+function invalidJsonResponseForTask(task: FakeOllamaRequest["task"]) {
+  if (task === "factCheckClaims") return "{not valid json";
+  return responseForTask(task);
 }

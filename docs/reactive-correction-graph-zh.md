@@ -427,3 +427,72 @@ START
 
 它不是前端 UI adapter，也不是要取代 LangGraph。  
 它是一個面向 workflow engine 的 reactive runtime adapter，目標是讓複雜 async dependency 在單一 node 內部變得可觀測、可測試、可組合。
+## 本機 LLM Demo 紀錄
+
+在 Task 15 之後，runtime 已經可以透過 `CorrectionRuntimeModel` 介面切換 provider。預設測試仍然使用 deterministic mock model；Ollama 只作為手動 demo provider。
+
+這次實測得到兩個重要觀察：
+
+1. `qwen3:4b` 可以被 Ollama 呼叫到，但在 `factCheckClaims` 的 JSON step 回傳空字串，最後 runtime 會明確失敗：
+
+```txt
+factCheck failed: Ollama factCheckClaims returned an empty response for model qwen3:4b
+```
+
+這代表問題不是 runtime 沒有 settle，也不是 Ollama 沒有啟動，而是本機模型在 structured JSON output 上不穩定。
+
+2. 改用 `llama3.2:3b` 後，手動 demo 可以成功輸出：
+
+```bash
+OLLAMA_MODEL=llama3.2:3b pnpm run demo:ollama ./src/examples/input.md
+```
+
+成功後會產生：
+
+```txt
+.output/result.md
+.output/trace.json
+.output/state.json
+```
+
+這證明 local LLM provider path 已經接通，並且 `draft -> claims -> factCheck -> styleReview -> correctionPlan -> rewriteDraft -> finalResult` 的 runtime lifecycle 可以跑完。
+
+不過這次也暴露一個更細的品質問題：`state.json` 裡的 `claims` 有三個，但 `factCheckResult.items` 只回了一個。也就是說，demo 在技術上跑通了，但 provider output 還沒有達到「每個 claim 都被 fact-check 覆蓋」的語意品質。
+
+因此後續任務切成兩段：
+
+### Task 16: Missing FactCheck Coverage
+
+處理「LLM 回傳不完整但仍可使用」的情況。
+
+目標是：
+
+- 如果 runtime 抽出多個 claims。
+- 但 provider 只回部分 claim 的 fact-check result。
+- runtime 不應該默默當作完全成功。
+- 缺漏的 claim 應該被補成 `needs-review`。
+- `finalResult.unresolvedIssues` 應該揭露這些 missing coverage。
+
+這讓 demo 的語意品質更可信：即使本機模型沒有完整照 contract 回答，runtime 也能把缺口變成可觀察的 unresolved issue。
+
+### Task 17: Provider Output Hardening
+
+處理「LLM 回傳錯誤或無法使用」的情況。
+
+包含：
+
+- unknown `claimId`
+- empty JSON response
+- invalid JSON response
+- provider error message 是否清楚
+- trace 是否有 `resource rejected`
+- hard failure 時是否避免 emit misleading `finalResult`
+
+Task 16 和 Task 17 的分界是：
+
+```txt
+Task 16: incomplete but usable output
+Task 17: invalid or unusable output
+```
+
+這個切法可以讓 TDD 節奏保持小步前進，也能把本機 LLM 的不穩定性慢慢收斂成 runtime contract。

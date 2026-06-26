@@ -578,6 +578,99 @@ Suggested subtasks:
 5. Task 15e: add docs for installing Ollama and pulling a small model.
 6. Task 15f: add an optional/manual smoke check that is skipped unless `OLLAMA_MODEL` is set.
 
+### 16. Missing FactCheck Coverage
+
+Scenario:
+
+```txt
+Given a correction model returns fact-check results for only some extracted claims
+When the runtime settles
+Then missing claim results are normalized into unresolved review items instead of being silently ignored
+```
+
+Why this matters:
+
+```txt
+Task 15 proves a local LLM provider can plug into the runtime.
+The first successful Ollama demo showed a realistic provider-quality issue:
+claims had multiple items, but factCheckResult covered only one claim.
+Task 16 turns that gap into a runtime contract.
+```
+
+Operations:
+
+1. create a runtime with an injected fake model.
+2. use a draft that extracts multiple claims.
+3. make `factCheckClaims()` return a result for only one claim.
+4. `runtime.receive()` the draft.
+5. `await runtime.runUntilSettled()`.
+6. inspect `runtime.emit()`.
+
+Acceptance:
+
+- `claims.length` is greater than the provider's original fact-check item count.
+- emitted `factCheckResult.items` covers every extracted claim.
+- missing claim IDs become `needs-review`.
+- missing claim notes explain that the provider did not return a fact-check result.
+- `finalResult.unresolvedIssues` includes the missing-coverage notes.
+- `finalResult` still emits.
+- automated tests use an injected fake model, not a real Ollama call.
+
+Suggested subtasks:
+
+1. Task 16a: add a failing runtime test for incomplete fact-check coverage.
+2. Task 16b: add the minimal normalization needed to cover missing claims.
+3. Task 16c: keep the normalization inside the runtime/provider boundary instead of changing trace semantics.
+
+### 17. Provider Output Hardening
+
+Scenario:
+
+```txt
+Given a correction model returns malformed, invalid, or unusable structured output
+When the runtime or provider receives that output
+Then the failure mode is explicit and does not create misleading final results
+```
+
+Why this comes after Task 16:
+
+```txt
+Task 16 handles incomplete but still usable fact-check output.
+Task 17 handles output that is invalid, contradictory, or unusable.
+```
+
+Behaviors to cover:
+
+```txt
+Unknown claim IDs:
+  A fact-check item references a claim id that was not extracted.
+
+Invalid or empty provider JSON:
+  The Ollama provider returns empty text or invalid JSON for a structured step.
+
+Provider documentation:
+  Developers know how to judge whether a local LLM demo succeeded semantically,
+  not just whether it wrote .output files.
+```
+
+Acceptance:
+
+- unknown `claimId` values do not crash the runtime.
+- valid claim results are preserved.
+- unknown claim results do not count as coverage for valid claims.
+- provider errors name the provider step, such as `factCheckClaims`.
+- provider errors name the model when available.
+- runtime trace includes a rejected resource event for hard provider failures.
+- no `finalResult emitted` event is recorded for hard provider failures.
+- docs explain how to inspect `result.md`, `state.json`, and `trace.json` after local LLM demos.
+
+Suggested subtasks:
+
+1. Task 17a: add a runtime test for unknown fact-check claim ids.
+2. Task 17b: normalize or ignore unknown ids while preserving valid items.
+3. Task 17c: keep/extend provider tests for empty or invalid Ollama JSON.
+4. Task 17d: update local LLM validation docs.
+
 ## How To Ask The Agent
 
 Good request:

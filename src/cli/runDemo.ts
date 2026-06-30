@@ -1,7 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createCorrectionGraph } from "../graph/createCorrectionGraph.js";
-import type { CorrectionRuntimeOutput } from "../schemas/correction.js";
+import type {
+  CorrectionRuntimeInput,
+  CorrectionRuntimeOutput,
+} from "../schemas/correction.js";
 import { createCorrectionRuntime } from "../runtime/createCorrectionRuntime.js";
 import { createTraceCollector } from "../trace/createTraceCollector.js";
 import type { TraceEvent } from "../trace/types.js";
@@ -34,14 +37,14 @@ async function main() {
 
   const absoluteInputPath = resolve(process.cwd(), inputPath);
   const outputDir = resolve(process.cwd(), ".output");
-  const draft = await readFile(absoluteInputPath, "utf8");
+  const input = parseDemoInput(await readFile(absoluteInputPath, "utf8"));
 
   let state: DemoState;
   let trace: TraceEvent[];
 
   if (mode === "graph") {
     const graph = createCorrectionGraph();
-    state = await graph.invoke({ draft });
+    state = await graph.invoke(input);
     trace = state.trace ?? [];
   } else {
     const traceCollector = createTraceCollector();
@@ -59,7 +62,7 @@ async function main() {
       model,
       ...settleOptionsForProvider(selectedProvider),
     });
-    runtime.receive({ draft });
+    runtime.receive(input);
     await runtime.runUntilSettled();
 
     state = runtime.emit();
@@ -84,6 +87,32 @@ async function main() {
   console.log("- ./.output/result.md");
   console.log("- ./.output/trace.json");
   console.log("- ./.output/state.json");
+}
+
+function parseDemoInput(markdown: string): CorrectionRuntimeInput {
+  const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(markdown);
+  if (!frontMatter) return { draft: markdown };
+
+  const metadata = JSON.parse(frontMatter[1] ?? "{}") as Record<string, unknown>;
+
+  return {
+    draft: (frontMatter[2] ?? "").trim(),
+    userIntent: optionalMetadataString(metadata, "userIntent"),
+    styleGuide: optionalMetadataString(metadata, "styleGuide"),
+  };
+}
+
+function optionalMetadataString(
+  metadata: Record<string, unknown>,
+  key: "userIntent" | "styleGuide",
+) {
+  const value = metadata[key];
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new Error(`Demo input metadata ${key} must be a string`);
+  }
+
+  return value;
 }
 
 function settleOptionsForProvider(provider: string) {

@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 const execAsync = promisify(exec);
 
 describe("demo CLI", () => {
-  it("writes result, trace, and state artifacts for the example markdown input", async () => {
+  it("writes an explanatory correction narrative for the demo fixture", async () => {
     const cwd = process.cwd();
     const outputDir = resolve(cwd, ".output");
     const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
@@ -30,11 +30,15 @@ describe("demo CLI", () => {
     const state = JSON.parse(stateJson) as {
       finalResult?: {
         revisedDraft?: string;
+        summary?: string[];
+        unresolvedIssues?: string[];
       };
     };
 
     expect(resultMarkdown).toContain("## Revised Draft");
     expect(resultMarkdown).toContain("Mock correction notes");
+    expect(resultMarkdown).toContain("## Correction Summary");
+    expect(resultMarkdown).toContain("## Unresolved Issues");
     expect(Array.isArray(trace)).toBe(true);
     expect(trace).toEqual(
       expect.arrayContaining([
@@ -46,6 +50,16 @@ describe("demo CLI", () => {
       ]),
     );
     expect(state.finalResult?.revisedDraft).toContain("Mock correction notes");
+    expect(state.finalResult?.summary).toEqual(
+      expect.arrayContaining([
+        "Review claim claim-1: This claim is tentative and should be verified.",
+        "Apply style guide: Use concise technical language for TypeScript developers.",
+        "Respect user intent: Explain why reactive invalidation avoids unnecessary agent work.",
+      ]),
+    );
+    expect(state.finalResult?.unresolvedIssues).toEqual([
+      "This claim is tentative and should be verified.",
+    ]);
   }, 20_000);
 
   it("writes graph and runtime trace artifacts in graph mode", async () => {

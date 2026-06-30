@@ -1,7 +1,13 @@
-# Demo Draft
+---
+{
+  "userIntent": "Explain why reactive invalidation avoids unnecessary agent work.",
+  "styleGuide": "Use concise technical language for TypeScript developers."
+}
+---
+# Reactive Correction Demo
 
-Signal-kernel can maybe coordinate async correction branches inside a workflow node.
+Signal-kernel can maybe prevent every correction branch from rerunning after one input changes.
 
-If fact checking changes, the correction plan should update without rerunning unrelated style work.
+A style-only edit should reuse the settled fact-check result while the style reviewer and rewrite step run again.
 
-The first version should prove runtime behavior before adding UI polish.
+LangGraph owns the outer workflow while signal-kernel settles the reactive correction work inside one node.

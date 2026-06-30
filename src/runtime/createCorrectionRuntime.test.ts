@@ -399,6 +399,43 @@ describe("createCorrectionRuntime", () => {
     );
   });
 
+  it("traces each missing fact-check result normalized by the runtime", async () => {
+    const runtime = createCorrectionRuntime({
+      model: {
+        factCheckClaims: async (claims) => ({
+          items: [
+            {
+              claimId: claims[0]?.id ?? "claim-1",
+              verdict: "supported",
+              note: "The provider only checked the first claim.",
+            },
+          ],
+        }),
+      },
+    });
+
+    runtime.receive({
+      draft: [
+        "Signal-kernel coordinates async correction branches.",
+        "The runtime keeps unrelated style work from rerunning.",
+        "The demo should expose incomplete provider output.",
+      ].join(" "),
+    });
+    await runtime.runUntilSettled();
+
+    const coverageEvents = runtime.trace().filter(
+      (event) =>
+        event.scope === "resource" &&
+        event.type === "changed" &&
+        event.label === "factCheckCoverage",
+    );
+
+    expect(coverageEvents.map((event) => event.metadata?.claimId)).toEqual([
+      "claim-2",
+      "claim-3",
+    ]);
+  });
+
   it("ignores unknown fact-check claim ids without counting them as coverage", async () => {
     const runtime = createCorrectionRuntime({
       model: {
@@ -451,6 +488,43 @@ describe("createCorrectionRuntime", () => {
         "This provider result points at an unknown claim.",
       ]),
     );
+  });
+
+  it("traces each unknown fact-check claim id ignored by the runtime", async () => {
+    const runtime = createCorrectionRuntime({
+      model: {
+        factCheckClaims: async (claims) => ({
+          items: [
+            ...claims.map((claim) => ({
+              claimId: claim.id,
+              verdict: "supported" as const,
+              note: "This result belongs to an extracted claim.",
+            })),
+            {
+              claimId: "claim-999",
+              verdict: "needs-review",
+              note: "This provider result points at an unknown claim.",
+            },
+          ],
+        }),
+      },
+    });
+
+    runtime.receive({
+      draft: "Signal-kernel coordinates async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    const ignoredEvents = runtime.trace().filter(
+      (event) =>
+        event.scope === "resource" &&
+        event.type === "skipped" &&
+        event.label === "factCheckCoverage",
+    );
+
+    expect(ignoredEvents.map((event) => event.metadata?.claimId)).toEqual([
+      "claim-999",
+    ]);
   });
 
   it("uses the configured settle timeout when slow async work is still pending", async () => {

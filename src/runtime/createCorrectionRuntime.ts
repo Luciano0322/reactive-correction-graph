@@ -228,7 +228,7 @@ function createRuntimeGraph(
       }
 
       const result = await model.factCheckClaims(claims, ctx.signal);
-      return normalizeFactCheckCoverage(claims, result);
+      return normalizeFactCheckCoverage(claims, result, traceCollector);
     },
   });
 
@@ -589,17 +589,36 @@ function buildCorrectionPlan(input: {
 function normalizeFactCheckCoverage(
   claims: Claim[],
   result: FactCheckResult,
+  traceCollector: TraceCollector,
 ): FactCheckResult {
   const validClaimIds = new Set(claims.map((claim) => claim.id));
   const validItems = result.items.filter((item) => validClaimIds.has(item.claimId));
+  const unknownItems = result.items.filter(
+    (item) => !validClaimIds.has(item.claimId),
+  );
+
+  for (const item of unknownItems) {
+    traceCollector.skipped("resource", "factCheckCoverage", {
+      claimId: item.claimId,
+      reason: "unknown claim id ignored",
+    });
+  }
+
   const coveredClaimIds = new Set(validItems.map((item) => item.claimId));
   const missingItems = claims
     .filter((claim) => !coveredClaimIds.has(claim.id))
-    .map((claim) => ({
-      claimId: claim.id,
-      verdict: "needs-review" as const,
-      note: `Provider did not return a fact-check result for ${claim.id}.`,
-    }));
+    .map((claim) => {
+      traceCollector.changed("resource", "factCheckCoverage", {
+        claimId: claim.id,
+        reason: "missing provider result normalized",
+      });
+
+      return {
+        claimId: claim.id,
+        verdict: "needs-review" as const,
+        note: `Provider did not return a fact-check result for ${claim.id}.`,
+      };
+    });
 
   if (missingItems.length === 0 && validItems.length === result.items.length) {
     return result;

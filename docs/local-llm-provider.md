@@ -122,6 +122,23 @@ Inspect `.output/trace.json`:
 - hard provider failures, such as invalid JSON, should include a resource
   `rejected` event and should not emit a final result.
 
+### Claim Budget vs Provider Coverage
+
+The runtime extracts at most six claims from a draft for fact-checking. When a
+draft has more candidates, trace includes a `computed claimBudget skipped`
+event with the candidate, extracted, and omitted counts. Its
+`factCheckScope` metadata is `extractedClaims`, so fact-check coverage applies
+only to the claims present in runtime state.
+
+This differs from provider coverage problems:
+
+- claim budget means the runtime intentionally omitted candidates before
+  calling the provider.
+- missing coverage means the provider omitted a result for an extracted claim;
+  the runtime normalizes it to `needs-review`.
+- an unknown `claimId` means the provider returned a result outside the
+  extracted claim set; the runtime ignores it.
+
 ## Manual Smoke Test
 
 The manual Ollama smoke test is skipped unless `OLLAMA_MODEL` is set.

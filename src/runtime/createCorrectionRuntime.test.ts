@@ -527,6 +527,58 @@ describe("createCorrectionRuntime", () => {
     ]);
   });
 
+  it("limits fact checking to the claim budget and traces omitted claims", async () => {
+    const runtime = createCorrectionRuntime();
+
+    runtime.receive({
+      draft: Array.from(
+        { length: 8 },
+        (_, index) => `Claim candidate ${index + 1} should be reviewed.`,
+      ).join(" "),
+    });
+    await runtime.runUntilSettled();
+
+    const output = runtime.emit();
+    const budgetEvent = runtime.trace().find(
+      (event) =>
+        event.scope === "computed" &&
+        event.type === "skipped" &&
+        event.label === "claimBudget",
+    );
+
+    expect({
+      claimIds: output.claims?.map((claim) => claim.id),
+      factCheckClaimIds: output.factCheckResult?.items.map(
+        (item) => item.claimId,
+      ),
+      budgetMetadata: budgetEvent?.metadata,
+    }).toEqual({
+      claimIds: [
+        "claim-1",
+        "claim-2",
+        "claim-3",
+        "claim-4",
+        "claim-5",
+        "claim-6",
+      ],
+      factCheckClaimIds: [
+        "claim-1",
+        "claim-2",
+        "claim-3",
+        "claim-4",
+        "claim-5",
+        "claim-6",
+      ],
+      budgetMetadata: {
+        budget: 6,
+        candidateCount: 8,
+        extractedCount: 6,
+        omittedCount: 2,
+        factCheckScope: "extractedClaims",
+      },
+    });
+  });
+
   it("uses the configured settle timeout when slow async work is still pending", async () => {
     const runtime = createCorrectionRuntime({
       model: createDelayedCorrectionModel(50),

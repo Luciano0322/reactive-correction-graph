@@ -83,6 +83,7 @@ const defaultRuntimeModel: CorrectionRuntimeModel = {
 
 const DEFAULT_SETTLE_TIMEOUT_MS = 2_000;
 const DEFAULT_SETTLE_POLL_MS = 10;
+const DEFAULT_CLAIM_BUDGET = 6;
 
 export function createCorrectionRuntime(
   optionsOrTraceCollector: TraceCollector | CorrectionRuntimeOptions = {},
@@ -200,7 +201,19 @@ function createRuntimeGraph(
 
   const claimsComputed = computed(() => {
     traceCollector.started("computed", "claims");
-    const claims = extractClaims(draftSignal.get());
+    const candidates = extractClaimCandidates(draftSignal.get());
+    const claims = applyClaimBudget(candidates);
+
+    if (candidates.length > claims.length) {
+      traceCollector.skipped("computed", "claimBudget", {
+        budget: DEFAULT_CLAIM_BUDGET,
+        candidateCount: candidates.length,
+        extractedCount: claims.length,
+        omittedCount: candidates.length - claims.length,
+        factCheckScope: "extractedClaims",
+      });
+    }
+
     traceCollector.completed("computed", "claims", {
       count: claims.length,
     });
@@ -541,16 +554,23 @@ function recordInputInvalidation(
 }
 
 function extractClaims(draft: string): Claim[] {
+  return applyClaimBudget(extractClaimCandidates(draft));
+}
+
+function extractClaimCandidates(draft: string): Claim[] {
   return draft
     .split(/\n+|(?<=[.!?])\s+/)
     .map((part) => part.trim())
     .filter(Boolean)
     .filter((part) => !part.startsWith("#"))
-    .slice(0, 6)
     .map((text, index) => ({
       id: `claim-${index + 1}`,
       text,
     }));
+}
+
+function applyClaimBudget(claims: Claim[]): Claim[] {
+  return claims.slice(0, DEFAULT_CLAIM_BUDGET);
 }
 
 function areClaimsEqual(a: Claim[], b: Claim[]) {

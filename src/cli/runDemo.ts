@@ -1,15 +1,33 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { createCorrectionGraph } from "../graph/createCorrectionGraph.js";
+import type { CorrectionRuntimeOutput } from "../schemas/correction.js";
 import { createCorrectionRuntime } from "../runtime/createCorrectionRuntime.js";
 import { createTraceCollector } from "../trace/createTraceCollector.js";
+import type { TraceEvent } from "../trace/types.js";
 import { createCorrectionModelFromEnv } from "../llm/createCorrectionModel.js";
 
+type DemoState = Partial<CorrectionRuntimeOutput> & {
+  trace?: TraceEvent[];
+  graphTrace?: TraceEvent[];
+};
+
 async function main() {
-  const { inputPath, provider } = parseArgs(process.argv.slice(2));
+  const {
+    inputPath: requestedInputPath,
+    mode,
+    provider,
+  } = parseArgs(process.argv.slice(2));
+  const inputPath =
+    requestedInputPath ??
+    (mode === "graph" ? "./src/examples/input.md" : undefined);
   const selectedProvider = provider ?? process.env.CORRECTION_MODEL ?? "mock";
 
   if (!inputPath) {
-    console.error("Usage: pnpm demo [--provider mock|ollama] ./src/examples/input.md");
+    console.error(
+      "Usage: pnpm demo [--provider mock|ollama] ./src/examples/input.md\n" +
+        "   or: pnpm demo:graph [./src/examples/input.md]",
+    );
     process.exitCode = 1;
     return;
   }
@@ -18,39 +36,46 @@ async function main() {
   const outputDir = resolve(process.cwd(), ".output");
   const draft = await readFile(absoluteInputPath, "utf8");
 
-  const traceCollector = createTraceCollector();
-  traceCollector.started("cli", "demo", {
-    inputPath,
-    provider: selectedProvider,
-  });
+  let state: DemoState;
+  let trace: TraceEvent[];
 
-  const model = createCorrectionModelFromEnv({
-    ...process.env,
-    ...(provider ? { CORRECTION_MODEL: provider } : {}),
-  });
-  const runtime = createCorrectionRuntime({
-    traceCollector,
-    model,
-    ...settleOptionsForProvider(selectedProvider),
-  });
-  runtime.receive({ draft });
-  await runtime.runUntilSettled();
+  if (mode === "graph") {
+    const graph = createCorrectionGraph();
+    state = await graph.invoke({ draft });
+    trace = state.trace ?? [];
+  } else {
+    const traceCollector = createTraceCollector();
+    traceCollector.started("cli", "demo", {
+      inputPath,
+      provider: selectedProvider,
+    });
 
-  const state = runtime.emit();
+    const model = createCorrectionModelFromEnv({
+      ...process.env,
+      ...(provider ? { CORRECTION_MODEL: provider } : {}),
+    });
+    const runtime = createCorrectionRuntime({
+      traceCollector,
+      model,
+      ...settleOptionsForProvider(selectedProvider),
+    });
+    runtime.receive({ draft });
+    await runtime.runUntilSettled();
+
+    state = runtime.emit();
+    traceCollector.completed("cli", "demo", {
+      outputDir: ".output",
+    });
+    trace = runtime.trace();
+  }
 
   if (!state.finalResult) {
-    throw new Error("Runtime settled without a final result");
+    throw new Error("Demo settled without a final result");
   }
 
   await mkdir(outputDir, { recursive: true });
   await writeFile(resolve(outputDir, "result.md"), renderResultMarkdown(state), "utf8");
   await writeFile(resolve(outputDir, "state.json"), JSON.stringify(state, null, 2), "utf8");
-
-  traceCollector.completed("cli", "demo", {
-    outputDir: ".output",
-  });
-
-  const trace = runtime.trace();
   await writeFile(resolve(outputDir, "trace.json"), JSON.stringify(trace, null, 2), "utf8");
 
   console.log("Running Reactive Correction Graph...");
@@ -83,11 +108,18 @@ function parsePositiveInteger(value: string | undefined, fallback: number) {
 }
 
 function parseArgs(args: string[]) {
+  let mode: string | undefined;
   let provider: string | undefined;
   const positional: string[] = [];
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+
+    if (arg === "--mode") {
+      mode = args[index + 1];
+      index += 1;
+      continue;
+    }
 
     if (arg === "--provider") {
       provider = args[index + 1];
@@ -100,11 +132,12 @@ function parseArgs(args: string[]) {
 
   return {
     inputPath: positional[0],
+    mode,
     provider,
   };
 }
 
-function renderResultMarkdown(state: ReturnType<ReturnType<typeof createCorrectionRuntime>["emit"]>) {
+function renderResultMarkdown(state: DemoState) {
   const result = state.finalResult;
   if (!result) return "# Reactive Correction Result\n\nNo final result emitted.\n";
 

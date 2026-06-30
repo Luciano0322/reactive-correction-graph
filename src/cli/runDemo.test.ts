@@ -47,4 +47,62 @@ describe("demo CLI", () => {
     );
     expect(state.finalResult?.revisedDraft).toContain("Mock correction notes");
   }, 20_000);
+
+  it("writes graph and runtime trace artifacts in graph mode", async () => {
+    const cwd = process.cwd();
+    const outputDir = resolve(cwd, ".output");
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    await rm(outputDir, { recursive: true, force: true });
+    await execAsync(`${pnpmCommand} run demo:graph`, {
+      cwd,
+      timeout: 10_000,
+    });
+
+    const resultMarkdown = await readFile(resolve(outputDir, "result.md"), "utf8");
+    const traceJson = await readFile(resolve(outputDir, "trace.json"), "utf8");
+    const stateJson = await readFile(resolve(outputDir, "state.json"), "utf8");
+
+    const trace = JSON.parse(traceJson) as Array<{
+      scope?: string;
+      type?: string;
+      label?: string;
+    }>;
+    const state = JSON.parse(stateJson) as {
+      finalResult?: {
+        revisedDraft?: string;
+      };
+      trace?: typeof trace;
+      graphTrace?: typeof trace;
+    };
+
+    expect({
+      result: resultMarkdown,
+      graphTrace: state.graphTrace,
+      runtimeTrace: state.trace,
+      traceArtifact: trace,
+    }).toEqual({
+      result: expect.stringContaining("Mock correction notes"),
+      graphTrace: expect.arrayContaining([
+        expect.objectContaining({
+          scope: "graph",
+          type: "started",
+          label: "prepareInput",
+        }),
+        expect.objectContaining({
+          scope: "graph",
+          type: "completed",
+          label: "finalize",
+        }),
+      ]),
+      runtimeTrace: expect.arrayContaining([
+        expect.objectContaining({
+          scope: "effect",
+          type: "emitted",
+          label: "finalResult",
+        }),
+      ]),
+      traceArtifact: state.trace,
+    });
+  }, 20_000);
 });

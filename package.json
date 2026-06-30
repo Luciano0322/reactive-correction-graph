@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "demo": "tsx src/cli/runDemo.ts",
+    "demo:graph": "tsx src/cli/runDemo.ts --mode graph",
     "demo:ollama": "tsx src/cli/runDemo.ts --provider ollama",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"

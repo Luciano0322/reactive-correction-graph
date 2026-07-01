@@ -1,6 +1,7 @@
 import {
   createCorrectionGraph,
   createCorrectionGraphSession,
+  type CorrectionGraphState,
 } from "../graph/createCorrectionGraph.js";
 import type { CorrectionRuntimeInput, FinalResult } from "../schemas/correction.js";
 import {
@@ -25,9 +26,18 @@ export type CorrectionComparisonReport = {
   scenarios: CorrectionComparisonScenario[];
 };
 
+export type CorrectionComparisonRun = {
+  report: CorrectionComparisonReport;
+  state: CorrectionGraphState;
+};
+
 const INITIAL_DRAFT = "Signal-kernel coordinates async correction branches.";
 
 export async function runCorrectionComparison(): Promise<CorrectionComparisonReport> {
+  return (await runCorrectionComparisonWithArtifacts()).report;
+}
+
+export async function runCorrectionComparisonWithArtifacts(): Promise<CorrectionComparisonRun> {
   const eagerModel = createInstrumentedCorrectionModel();
   const reactiveModel = createInstrumentedCorrectionModel();
   const eagerGraph = createCorrectionGraph({ model: eagerModel.model });
@@ -61,17 +71,20 @@ export async function runCorrectionComparison(): Promise<CorrectionComparisonRep
   const reactiveClaimState = await reactiveSession.invoke(claimChangingInput);
 
   return {
-    provider: "deterministic-mock",
-    scenarios: [
-      styleOnlyScenario,
-      createScenario(
-        "claim-changing",
-        eagerModel,
-        eagerClaimState.finalResult,
-        reactiveModel,
-        reactiveClaimState.finalResult,
-      ),
-    ],
+    report: {
+      provider: "deterministic-mock",
+      scenarios: [
+        styleOnlyScenario,
+        createScenario(
+          "claim-changing",
+          eagerModel,
+          eagerClaimState.finalResult,
+          reactiveModel,
+          reactiveClaimState.finalResult,
+        ),
+      ],
+    },
+    state: reactiveClaimState,
   };
 }
 

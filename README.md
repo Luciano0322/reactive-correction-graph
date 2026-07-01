@@ -1,6 +1,7 @@
 # reactive-correction-graph
 
-CLI scaffold for validating a signal-kernel powered reactive correction runtime.
+Reproducible CLI demo for validating a signal-kernel powered reactive
+correction runtime inside a LangGraph workflow.
 
 See [TDD Workflow](./docs/tdd-workflow.md) for the red-green-refactor process used to add runtime behavior.
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
@@ -10,19 +11,30 @@ See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama d
 
 ```mermaid
 flowchart TD
-  input["Markdown input<br/>src/examples/input.md"]
-  cli["CLI<br/>src/cli/runDemo.ts"]
-  graphNode["LangGraph workflow<br/>createCorrectionGraph()"]
+  markdown["Markdown fixtures"]
+  demo["demo / demo:graph"]
+  comparison["demo:compare<br/>deterministic transitions"]
+  evaluation["evaluate:ollama<br/>manual local evaluation"]
+  eager["Fresh LangGraph invocation"]
+  session["Persistent graph session"]
   adapter["Runtime adapter<br/>invokeCorrectionRuntime()"]
-  runtime["SignalNode boundary<br/>createCorrectionRuntime()"]
-  output[".output/result.md<br/>.output/trace.json<br/>.output/state.json"]
+  runtime["signal-kernel runtime<br/>receive / settle / emit / trace"]
+  mock["Deterministic mock model"]
+  ollama["Optional Ollama model"]
+  artifacts[".output artifacts"]
 
-  input --> cli
-  cli -->|"runtime mode"| runtime
-  cli -->|"graph mode"| graphNode
-  graphNode --> adapter
+  markdown --> demo
+  markdown --> evaluation
+  demo --> adapter
+  comparison --> eager
+  comparison --> session
+  evaluation --> eager
+  eager --> adapter
+  session --> adapter
   adapter --> runtime
-  runtime --> output
+  mock --> runtime
+  ollama --> runtime
+  runtime --> artifacts
 ```
 
 ## Runtime Flow
@@ -59,30 +71,120 @@ flowchart LR
   effect -. emitted .-> trace
 ```
 
-## Run
+## Reproduce
+
+Prerequisites:
+
+- Node.js 22
+- pnpm 10.11.0, as pinned by `packageManager` in `package.json`
+
+From a fresh clone, run:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm run demo:compare
+```
+
+This path uses deterministic mock model functions. It does not require Ollama,
+an API key, LangSmith, a database, or a sibling checkout of signal-kernel.
+
+When changing dependencies, verify that `package.json` still matches the
+committed lockfile:
+
+```bash
+pnpm run verify:lockfile
+```
+
+`demo:compare` writes:
+
+- `.output/result.md`
+- `.output/state.json`
+- `.output/trace.json`
+- `.output/comparison.json`
+
+Inspect them in this order:
+
+1. `comparison.json` shows eager and reactive provider call counts for the
+   style-only and claim-changing transitions.
+2. `result.md` shows the representative revised draft and correction summary.
+3. `state.json` shows the final persistent-session state and its runtime trace.
+4. `trace.json` isolates that runtime lifecycle for easier inspection.
+
+## Comparison Evidence
+
+The comparison records cumulative provider calls across an initial input and
+one or two updates:
+
+| Scenario | Execution | Fact check | Style review | Rewrite | Final result |
+| --- | --- | ---: | ---: | ---: | --- |
+| Style-only update | Eager graph / fresh runtime | 2 | 2 | 2 | Produced |
+| Style-only update | Persistent reactive session | 1 | 2 | 2 | Produced |
+| Claim-changing update | Eager graph / fresh runtime | 3 | 3 | 3 | Produced |
+| Claim-changing update | Persistent reactive session | 2 | 3 | 3 | Produced |
+
+For both scenarios, `finalResultsMatch` is `true`. Within these fixed
+deterministic transitions, the evidence shows:
+
+- A style-only update reuses the settled fact-check result in the persistent
+  reactive session.
+- A claim-changing update invalidates fact-check work and performs it again.
+- Rewrite work runs once per logical input in both execution modes.
+- Selective invalidation preserves the same deterministic final result as the
+  fresh eager baseline used by this demo.
+
+## Limitations
+
+- This is a fixed deterministic comparison, not a latency benchmark, token
+  benchmark, cost benchmark, or general performance benchmark.
+- Provider call counts do not measure CPU usage, memory usage, scheduler
+  overhead, concurrency, or production scalability.
+- Matching deterministic outputs does not prove factual correctness, writing
+  quality, or usefulness of an LLM-generated correction.
+- The eager baseline deliberately creates a fresh correction runtime for each
+  graph invocation. The comparison does not claim that LangGraph cannot implement reuse,
+  caching, checkpointing, or a different workflow design.
+- The two scenarios demonstrate this runtime contract only; they do not prove
+  that every agent workflow benefits from reactive invalidation.
+- Ollama evaluation is a separate manual path, and its
+  `subjectiveCorrectionQuality` remains `not-evaluated`.
+
+## Fixtures
+
+| Fixture | Focus |
+| --- | --- |
+| [`src/examples/input.md`](./src/examples/input.md) | Explanatory mixed intent, fact-check, and style signals |
+| [`src/examples/fact-correction.md`](./src/examples/fact-correction.md) | Fact-check correction without a style guide |
+| [`src/examples/style-correction.md`](./src/examples/style-correction.md) | Style correction without a tentative fact signal |
+
+The deterministic comparison uses fixed internal transitions so its operation
+counts remain stable. The three Markdown fixtures are used by the standalone
+demo and the optional local LLM evaluation.
+
+## Other Commands
+
+```bash
 pnpm demo ./src/examples/input.md
 pnpm run demo:graph
 ```
 
-The explanatory fixture is [`src/examples/input.md`](./src/examples/input.md).
-Its JSON front matter supplies `userIntent` and `styleGuide`, while the draft
-contains a tentative claim with the word `maybe`. With the deterministic mock
-provider, these inputs produce separate intent, style, and fact-check actions.
+Both commands use the deterministic mock provider by default and write
+`result.md`, `state.json`, and `trace.json` under `.output`.
 
-The demos write:
+Optional Ollama commands are manual integration paths:
 
-- `.output/result.md`
-- `.output/trace.json`
-- `.output/state.json`
+```bash
+pnpm run demo:ollama ./src/examples/input.md
+pnpm run evaluate:ollama
+```
 
-Inspect the artifacts in this order:
+Ollama setup, PowerShell syntax, POSIX syntax, trial configuration, and report
+interpretation are documented in [Local LLM Provider](./docs/local-llm-provider.md).
 
-1. `result.md` shows the revised draft, correction summary, and unresolved
-   factual issue.
-2. `state.json` shows the extracted claims and structured correction state. In
-   graph mode it also contains `graphTrace` and the inner runtime `trace`.
-3. `trace.json` shows the runtime lifecycle, including resource `pending` and
-   `resolved` events followed by `finalResult emitted`.
+## Continuous Integration
+
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) runs frozen dependency
+installation, typechecking, and deterministic tests for pushes and pull
+requests. The manual Ollama smoke test remains skipped unless explicitly
+configured outside the default CI workflow.

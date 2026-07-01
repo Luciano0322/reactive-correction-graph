@@ -203,6 +203,9 @@ describe("demo CLI", () => {
       resolve(outputDir, "comparison.json"),
       "utf8",
     );
+    const resultMarkdown = await readFile(resolve(outputDir, "result.md"), "utf8");
+    const stateJson = await readFile(resolve(outputDir, "state.json"), "utf8");
+    const traceJson = await readFile(resolve(outputDir, "trace.json"), "utf8");
     const report = JSON.parse(comparisonJson) as {
       provider?: string;
       scenarios?: Array<{
@@ -211,6 +214,11 @@ describe("demo CLI", () => {
         reactive?: { factCheckCalls?: number };
       }>;
     };
+    const state = JSON.parse(stateJson) as {
+      finalResult?: { revisedDraft?: string };
+      trace?: Array<{ scope?: string; type?: string; label?: string }>;
+    };
+    const trace = JSON.parse(traceJson) as typeof state.trace;
     const styleOnly = report.scenarios?.find(
       (scenario) => scenario.scenario === "style-only",
     );
@@ -228,13 +236,28 @@ describe("demo CLI", () => {
         eager: claimChanging?.eager?.factCheckCalls,
         reactive: claimChanging?.reactive?.factCheckCalls,
       },
+      resultMarkdown,
+      finalResultProduced: Boolean(state.finalResult?.revisedDraft),
+      traceMatchesState: trace === undefined
+        ? false
+        : JSON.stringify(trace) === JSON.stringify(state.trace),
+      finalResultEmitted: trace?.some(
+        (event) =>
+          event.scope === "effect" &&
+          event.type === "emitted" &&
+          event.label === "finalResult",
+      ),
       stdout,
     }).toEqual({
       provider: "deterministic-mock",
       styleOnlyFactChecks: { eager: 2, reactive: 1 },
       claimChangingFactChecks: { eager: 3, reactive: 2 },
+      resultMarkdown: expect.stringContaining("## Revised Draft"),
+      finalResultProduced: true,
+      traceMatchesState: true,
+      finalResultEmitted: true,
       stdout: expect.stringMatching(
-        /Observed provider call counts[\s\S]*not a general performance benchmark/,
+        /Observed provider call counts[\s\S]*not a general performance benchmark[\s\S]*result\.md[\s\S]*state\.json[\s\S]*trace\.json[\s\S]*comparison\.json/,
       ),
     });
   }, 30_000);

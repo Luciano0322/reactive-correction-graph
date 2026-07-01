@@ -10,7 +10,8 @@
     "demo:ollama": "tsx src/cli/runDemo.ts --provider ollama",
     "evaluate:ollama": "tsx src/cli/runEvaluation.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:lockfile": "pnpm install --frozen-lockfile --lockfile-only"
   },
   "dependencies": {
     "@langchain/core": "^1.2.1",

@@ -9,6 +9,7 @@ import { createCorrectionRuntime } from "../runtime/createCorrectionRuntime.js";
 import { createTraceCollector } from "../trace/createTraceCollector.js";
 import type { TraceEvent } from "../trace/types.js";
 import { createCorrectionModelFromEnv } from "../llm/createCorrectionModel.js";
+import { renderResultMarkdown } from "./renderResultMarkdown.js";
 
 type DemoState = Partial<CorrectionRuntimeOutput> & {
   trace?: TraceEvent[];
@@ -80,7 +81,11 @@ async function main() {
   }
 
   await mkdir(outputDir, { recursive: true });
-  await writeFile(resolve(outputDir, "result.md"), renderResultMarkdown(state), "utf8");
+  await writeFile(
+    resolve(outputDir, "result.md"),
+    renderResultMarkdown(state.finalResult),
+    "utf8",
+  );
   await writeFile(resolve(outputDir, "state.json"), JSON.stringify(state, null, 2), "utf8");
   await writeFile(resolve(outputDir, "trace.json"), JSON.stringify(trace, null, 2), "utf8");
 
@@ -167,34 +172,6 @@ function parseArgs(args: string[]) {
     mode,
     provider,
   };
-}
-
-function renderResultMarkdown(state: DemoState) {
-  const result = state.finalResult;
-  if (!result) return "# Reactive Correction Result\n\nNo final result emitted.\n";
-
-  const summary = result.summary.map((item) => `- ${item}`).join("\n");
-  const unresolved =
-    result.unresolvedIssues.length > 0
-      ? result.unresolvedIssues.map((item) => `- ${item}`).join("\n")
-      : "- None";
-
-  return [
-    "# Reactive Correction Result",
-    "",
-    "## Revised Draft",
-    "",
-    result.revisedDraft,
-    "",
-    "## Correction Summary",
-    "",
-    summary,
-    "",
-    "## Unresolved Issues",
-    "",
-    unresolved,
-    "",
-  ].join("\n");
 }
 
 main().catch((error: unknown) => {

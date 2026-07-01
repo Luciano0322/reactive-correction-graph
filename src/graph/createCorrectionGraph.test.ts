@@ -124,6 +124,124 @@ describe("createCorrectionGraph", () => {
     });
   });
 
+  it("reruns style work without fact checking on a style-only session update", async () => {
+    const session = createCorrectionGraphSession();
+    const draft = "Signal-kernel coordinates async correction branches.";
+
+    const firstState = await session.invoke({ draft });
+    const secondState = await session.invoke({
+      draft,
+      styleGuide: "Use concise technical language.",
+    });
+    const secondInvocationTrace = secondState.trace.slice(
+      firstState.trace.length,
+    );
+    const hasEvent = (type: string, label: string) =>
+      secondInvocationTrace.some(
+        (event) => event.type === type && event.label === label,
+      );
+
+    expect({
+      styleReviewPending: hasEvent("pending", "styleReview"),
+      rewriteDraftPending: hasEvent("pending", "rewriteDraft"),
+      factCheckPending: hasEvent("pending", "factCheck"),
+      factCheckStale: hasEvent("stale", "factCheck"),
+      summary: secondState.finalResult?.summary,
+    }).toEqual({
+      styleReviewPending: true,
+      rewriteDraftPending: true,
+      factCheckPending: false,
+      factCheckStale: false,
+      summary: expect.arrayContaining([
+        "Apply style guide: Use concise technical language.",
+      ]),
+    });
+  });
+
+  it("reruns fact checking on a claim-changing third session invocation", async () => {
+    const session = createCorrectionGraphSession();
+    const initialDraft = "Signal-kernel coordinates async correction branches.";
+    const styleGuide = "Use concise technical language.";
+
+    await session.invoke({ draft: initialDraft });
+    const secondState = await session.invoke({
+      draft: initialDraft,
+      styleGuide,
+    });
+    const thirdState = await session.invoke({
+      draft: `${initialDraft} A new claim now requires verification.`,
+      styleGuide,
+    });
+    const thirdInvocationTrace = thirdState.trace.slice(
+      secondState.trace.length,
+    );
+    const hasEvent = (type: string, label: string) =>
+      thirdInvocationTrace.some(
+        (event) => event.type === type && event.label === label,
+      );
+
+    expect({
+      claimCount: thirdState.claims?.length,
+      claimsCompleted: hasEvent("completed", "claims"),
+      factCheckPending: hasEvent("pending", "factCheck"),
+      rewriteDraftPending: hasEvent("pending", "rewriteDraft"),
+      finalResultChanged:
+        thirdState.finalResult?.revisedDraft !==
+        secondState.finalResult?.revisedDraft,
+      revisedDraft: thirdState.finalResult?.revisedDraft,
+    }).toEqual({
+      claimCount: 2,
+      claimsCompleted: true,
+      factCheckPending: true,
+      rewriteDraftPending: true,
+      finalResultChanged: true,
+      revisedDraft: expect.stringContaining(
+        "A new claim now requires verification.",
+      ),
+    });
+  });
+
+  it("keeps runtime state and trace history isolated between sessions", async () => {
+    const sessionA = createCorrectionGraphSession();
+    const sessionB = createCorrectionGraphSession();
+    const draftA = "Session A coordinates async correction branches.";
+    const draftB = "Session B owns an independent correction draft.";
+
+    await sessionA.invoke({ draft: draftA });
+    const secondStateA = await sessionA.invoke({
+      draft: draftA,
+      styleGuide: "Session A style only.",
+    });
+    const firstStateB = await sessionB.invoke({ draft: draftB });
+
+    const receiveCount = (state: typeof firstStateB) =>
+      state.trace.filter(
+        (event) =>
+          event.scope === "runtime" &&
+          event.type === "started" &&
+          event.label === "receive",
+      ).length;
+
+    expect({
+      sessionAReceiveCount: receiveCount(secondStateA),
+      sessionBReceiveCount: receiveCount(firstStateB),
+      sessionBSummary: firstStateB.finalResult?.summary,
+      sessionBRevisedDraft: firstStateB.finalResult?.revisedDraft,
+      sessionBContainsDraftA:
+        firstStateB.finalResult?.revisedDraft.includes(draftA),
+      sessionBContainsStyleA: firstStateB.finalResult?.summary.includes(
+        "Apply style guide: Session A style only.",
+      ),
+    }).toEqual({
+      sessionAReceiveCount: 2,
+      sessionBReceiveCount: 1,
+      sessionBSummary: ["No major correction needed in the mock runtime."],
+      sessionBRevisedDraft: expect.stringContaining(draftB),
+      sessionBContainsDraftA: false,
+      sessionBContainsStyleA: false,
+    });
+  });
+
   it("uses the correction model supplied by the graph caller", async () => {
     const graph = createCorrectionGraph({
       model: {

@@ -982,6 +982,73 @@ Suggested subtasks:
 4. Task 24d: implement the smallest eager baseline and reactive session runner.
 5. Task 24e: add the claim-changing comparison scenario.
 6. Task 24f: add `demo:compare` and write the comparison artifact.
+7. Task 24g: coalesce reactive rewrites generated while upstream resources are pending.
+
+#### Task 24g. Reactive Rewrite Coalescing
+
+Scenario:
+
+```txt
+Given a persistent reactive session has a previous stable result
+When a style-only or claim-changing update makes upstream resources pending
+Then rewriteDraft waits for current upstream results and invokes the model only once for that update
+```
+
+Evidence discovered by Task 24:
+
+```txt
+Current cumulative counts:
+
+style-only reactive:     factCheck 1 / styleReview 2 / rewriteDraft 3
+claim-changing reactive: factCheck 2 / styleReview 3 / rewriteDraft 6
+
+The runtime preserves previous resource values while new async work is pending.
+This currently allows rewriteDraft to run with a stale correction plan before
+running again with the current plan.
+```
+
+Why this must precede Task 25:
+
+```txt
+Rewrite is usually the most expensive LLM operation in this workflow.
+Local LLM evaluation would be misleading if one logical update generated multiple rewrite calls.
+```
+
+Target cumulative counts:
+
+```txt
+style-only reactive:     factCheck 1 / styleReview 2 / rewriteDraft 2
+claim-changing reactive: factCheck 2 / styleReview 3 / rewriteDraft 3
+```
+
+Important constraint:
+
+```txt
+Do not remove the previous-stable-output behavior to make the counts pass.
+The previous revised draft and stable final result must remain readable while
+current upstream resources are pending, but stale upstream values must not
+trigger a new model rewrite for the current receive epoch.
+```
+
+Acceptance:
+
+- add a failing comparison test expecting style-only reactive `rewriteDraftCalls` to be `2`.
+- add a failing comparison test expecting claim-changing reactive `rewriteDraftCalls` to be `3`.
+- style-only reactive `factCheckCalls` remains `1`.
+- claim-changing reactive `factCheckCalls` remains `2`.
+- eager baseline counts remain unchanged.
+- eager and reactive final results still match for both scenarios.
+- the previous revised draft remains available while the new rewrite is pending.
+- `snapshot().stableFinalResult` remains available while current work is pending.
+- `demo:compare` reports the new observed counts without changing its JSON contract.
+
+Suggested TDD slices:
+
+1. Task 24g-1: change only the style-only rewrite-count expectation and confirm RED.
+2. Task 24g-2: prevent stale style-review data from starting a rewrite for the current epoch.
+3. Task 24g-3: change only the claim-changing rewrite-count expectation and confirm RED.
+4. Task 24g-4: coalesce rewrites until current fact-check and style-review work is settled.
+5. Task 24g-5: rerun pending-output regression tests and the comparison CLI smoke test.
 
 ### 25. Local LLM Evaluation Harness
 

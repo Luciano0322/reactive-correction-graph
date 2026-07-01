@@ -38,12 +38,19 @@ async function main() {
   const absoluteInputPath = resolve(process.cwd(), inputPath);
   const outputDir = resolve(process.cwd(), ".output");
   const input = parseDemoInput(await readFile(absoluteInputPath, "utf8"));
+  const model = createCorrectionModelFromEnv({
+    ...process.env,
+    ...(provider ? { CORRECTION_MODEL: provider } : {}),
+  });
 
   let state: DemoState;
   let trace: TraceEvent[];
 
   if (mode === "graph") {
-    const graph = createCorrectionGraph();
+    const graph = createCorrectionGraph({
+      model,
+      ...settleOptionsForProvider(selectedProvider),
+    });
     state = await graph.invoke(input);
     trace = state.trace ?? [];
   } else {
@@ -53,10 +60,6 @@ async function main() {
       provider: selectedProvider,
     });
 
-    const model = createCorrectionModelFromEnv({
-      ...process.env,
-      ...(provider ? { CORRECTION_MODEL: provider } : {}),
-    });
     const runtime = createCorrectionRuntime({
       traceCollector,
       model,

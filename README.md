@@ -12,15 +12,17 @@ See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama d
 flowchart TD
   input["Markdown input<br/>src/examples/input.md"]
   cli["CLI<br/>src/cli/runDemo.ts"]
+  graph["LangGraph workflow<br/>createCorrectionGraph()"]
+  adapter["Runtime adapter<br/>invokeCorrectionRuntime()"]
   runtime["SignalNode boundary<br/>createCorrectionRuntime()"]
   output[".output/result.md<br/>.output/trace.json<br/>.output/state.json"]
 
   input --> cli
-  cli -->|"receive() / runUntilSettled() / emit() / trace()"| runtime
+  cli -->|"runtime mode"| runtime
+  cli -->|"graph mode"| graph
+  graph --> adapter
+  adapter --> runtime
   runtime --> output
-
-  langgraph["Future LangGraph node"]
-  langgraph -. "same SignalNode contract" .-> runtime
 ```
 
 ## Runtime Flow

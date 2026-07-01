@@ -12,7 +12,10 @@ import {
   invokeCorrectionRuntime,
   type CorrectionRuntimeAdapterState,
 } from "../runtime/correctionRuntimeAdapter.js";
-import type { CorrectionRuntimeSnapshot } from "../runtime/createCorrectionRuntime.js";
+import type {
+  CorrectionRuntimeOptions,
+  CorrectionRuntimeSnapshot,
+} from "../runtime/createCorrectionRuntime.js";
 
 const CorrectionGraphAnnotation = Annotation.Root({
   draft: Annotation<string>,
@@ -40,10 +43,12 @@ type GraphNodeLabel = "prepareInput" | "reactiveCorrection" | "finalize";
 
 let nextGraphTraceId = 1;
 
-export function createCorrectionGraph() {
+export function createCorrectionGraph(options: CorrectionRuntimeOptions = {}) {
   return new StateGraph(CorrectionGraphAnnotation)
     .addNode("prepareInput", prepareInputNode)
-    .addNode("reactiveCorrection", reactiveCorrectionNode)
+    .addNode("reactiveCorrection", (state) =>
+      reactiveCorrectionNode(state, options),
+    )
     .addNode("finalize", finalizeNode)
     .addEdge(START, "prepareInput")
     .addEdge("prepareInput", "reactiveCorrection")
@@ -62,9 +67,13 @@ function prepareInputNode(state: CorrectionGraphState): CorrectionGraphUpdate {
 
 async function reactiveCorrectionNode(
   state: CorrectionGraphState,
+  options: CorrectionRuntimeOptions,
 ): Promise<CorrectionRuntimeAdapterState & CorrectionGraphUpdate> {
   const started = graphTraceEvent("started", "reactiveCorrection");
-  const correctionState = await invokeCorrectionRuntime(toRuntimeInput(state));
+  const correctionState = await invokeCorrectionRuntime(
+    toRuntimeInput(state),
+    options,
+  );
 
   return {
     ...correctionState,

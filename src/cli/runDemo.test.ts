@@ -119,4 +119,16 @@ describe("demo CLI", () => {
       traceArtifact: state.trace,
     });
   }, 20_000);
+
+  it("validates provider selection in graph mode", async () => {
+    const cwd = process.cwd();
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    await expect(
+      execAsync(`${pnpmCommand} run demo:graph --provider unsupported`, {
+        cwd,
+        timeout: 10_000,
+      }),
+    ).rejects.toThrow(/Unsupported CORRECTION_MODEL: unsupported/);
+  }, 20_000);
 });

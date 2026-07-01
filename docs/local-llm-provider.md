@@ -75,6 +75,42 @@ JSON for the structured fact-check step. Try another local instruction model by
 setting `OLLAMA_MODEL`, or keep using the mock provider while developing the
 reactive runtime behavior.
 
+## LangGraph + Ollama Demo
+
+The graph demo passes the selected Ollama model through
+`createCorrectionGraph()` into the existing correction runtime. LangGraph owns
+the outer workflow; it does not duplicate provider or reactive runtime logic.
+
+PowerShell:
+
+```powershell
+$env:OLLAMA_MODEL = "llama3.2:3b"
+pnpm run demo:graph --provider ollama
+```
+
+Git Bash or other POSIX-style shells:
+
+```bash
+OLLAMA_MODEL=llama3.2:3b pnpm run demo:graph --provider ollama
+```
+
+An explicit input path remains optional:
+
+```bash
+pnpm run demo:graph --provider ollama ./src/examples/input.md
+```
+
+After a successful run:
+
+- `.output/result.md` contains the local model correction output.
+- `.output/state.json` contains `finalResult`, outer `graphTrace`, and inner
+  runtime `trace`.
+- `.output/trace.json` contains the runtime lifecycle including
+  `finalResult emitted`.
+
+This is a manual local integration path. Normal tests and CI continue to use
+the deterministic mock provider.
+
 ## Provider Selection
 
 Default mock provider:
@@ -141,7 +177,7 @@ This differs from provider coverage problems:
 
 ## Manual Smoke Test
 
-The manual Ollama smoke test is skipped unless `OLLAMA_MODEL` is set.
+The LangGraph + Ollama smoke test is skipped unless `OLLAMA_MODEL` is set.
 
 ```bash
 $env:OLLAMA_MODEL = "qwen3:4b"

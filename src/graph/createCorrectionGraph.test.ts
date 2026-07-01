@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createTraceCollector } from "../trace/createTraceCollector.js";
 import { createCorrectionGraph } from "./createCorrectionGraph.js";
 
 describe("createCorrectionGraph", () => {
@@ -89,5 +90,50 @@ describe("createCorrectionGraph", () => {
       ),
     ).toBe(false);
     expect(state.trace?.some((event) => event.scope === "graph")).toBe(false);
+  });
+
+  it("uses the correction model supplied by the graph caller", async () => {
+    const graph = createCorrectionGraph({
+      model: {
+        rewriteDraft: async ({ draft }) =>
+          `${draft}\n\nGraph provider rewrite marker.`,
+      },
+    });
+
+    const state = await graph.invoke({
+      draft: "Signal-kernel coordinates async correction branches.",
+    });
+
+    expect(state.finalResult?.revisedDraft).toContain(
+      "Graph provider rewrite marker.",
+    );
+  });
+
+  it("keeps provider failures visible through runtime trace", async () => {
+    const traceCollector = createTraceCollector();
+    const graph = createCorrectionGraph({
+      traceCollector,
+      model: {
+        factCheckClaims: async () => {
+          throw new Error("Local provider unavailable");
+        },
+      },
+    });
+
+    await expect(
+      graph.invoke({
+        draft: "Signal-kernel coordinates async correction branches.",
+      }),
+    ).rejects.toThrow(/factCheck failed: Local provider unavailable/);
+
+    expect(traceCollector.events()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "resource",
+          type: "rejected",
+          label: "factCheck",
+        }),
+      ]),
+    );
   });
 });

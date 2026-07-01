@@ -111,6 +111,49 @@ After a successful run:
 This is a manual local integration path. Normal tests and CI continue to use
 the deterministic mock provider.
 
+## Local LLM Evaluation
+
+The evaluation command runs the explanatory, fact-focused, and style-focused
+fixtures through the Ollama-backed LangGraph workflow. It writes the trial
+records to `.output/evaluation.json`.
+
+PowerShell:
+
+```powershell
+$env:OLLAMA_MODEL = "llama3.2:3b"
+$env:EVALUATION_TRIALS = "2"
+pnpm run evaluate:ollama
+```
+
+Git Bash or other POSIX-style shells:
+
+```bash
+OLLAMA_MODEL=llama3.2:3b EVALUATION_TRIALS=2 pnpm run evaluate:ollama
+```
+
+`EVALUATION_TRIALS` defaults to `1`. Each trial records whether the graph
+settled or rejected, its duration, claim coverage diagnostics, unresolved issue
+count, and any provider error. `OLLAMA_BASE_URL` can still override the default
+`http://localhost:11434` endpoint.
+
+The report `summary` contains structural measurements only:
+
+- `settledTrials` and `rejectedTrials` describe graph completion reliability.
+- `fullCoverageTrials` describes whether the provider returned a result for
+  every extracted claim.
+- `trialsWithNormalizedMissing` and `trialsWithIgnoredUnknown` describe
+  provider output that the runtime had to normalize or ignore.
+- `subjectiveCorrectionQuality` is always `not-evaluated` because this harness
+  has no human or model-based quality rubric.
+
+A settled trial with full claim coverage proves that the integration contract
+completed. It does not prove that factual verdicts are correct, prose is good,
+or the rewrite satisfies a reader's expectations. Those questions require a
+separate evaluation rubric and reviewed reference examples.
+
+This is a manual command. Normal `pnpm test` uses a deterministic local HTTP
+boundary and does not require Ollama to be installed or running.
+
 ## Provider Selection
 
 Default mock provider:

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createTraceCollector } from "../trace/createTraceCollector.js";
-import { createCorrectionGraph } from "./createCorrectionGraph.js";
+import {
+  createCorrectionGraph,
+  createCorrectionGraphSession,
+} from "./createCorrectionGraph.js";
 
 describe("createCorrectionGraph", () => {
   it("invokes a minimal LangGraph workflow around the correction runtime", async () => {
@@ -90,6 +93,35 @@ describe("createCorrectionGraph", () => {
       ),
     ).toBe(false);
     expect(state.trace?.some((event) => event.scope === "graph")).toBe(false);
+  });
+
+  it("keeps one runtime alive across graph session invocations", async () => {
+    const session = createCorrectionGraphSession();
+    const draft = "Signal-kernel coordinates async correction branches.";
+
+    const firstState = await session.invoke({ draft });
+    const secondState = await session.invoke({
+      draft,
+      userIntent: "Explain the incremental update.",
+    });
+    const receiveStartedCount = secondState.trace.filter(
+      (event) =>
+        event.scope === "runtime" &&
+        event.type === "started" &&
+        event.label === "receive",
+    ).length;
+
+    expect({
+      firstFinalResultExists: Boolean(firstState.finalResult),
+      receiveStartedCount,
+      secondSummary: secondState.finalResult?.summary,
+    }).toEqual({
+      firstFinalResultExists: true,
+      receiveStartedCount: 2,
+      secondSummary: expect.arrayContaining([
+        "Respect user intent: Explain the incremental update.",
+      ]),
+    });
   });
 
   it("uses the correction model supplied by the graph caller", async () => {

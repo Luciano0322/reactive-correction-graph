@@ -44,6 +44,11 @@ type RevisedDraftResult = {
   text: string;
 };
 
+type KeyedResourceResult<T> = {
+  inputKey: string;
+  value: T;
+};
+
 export type CorrectionRuntime = SignalNode<
   CorrectionRuntimeInput,
   CorrectionRuntimeOutput,
@@ -226,28 +231,36 @@ function createRuntimeGraph(
     claimsSignal.set(claimsComputed.get());
   });
 
-  const [factCheckResult, factCheckMeta] = createResource<Claim[], FactCheckResult>({
+  const [factCheckResult, factCheckMeta] = createResource<
+    Claim[],
+    KeyedResourceResult<FactCheckResult>
+  >({
     input: () => claimsSignal.get(),
     keepPreviousValueOnPending: true,
     onEvent(event) {
       recordGraphResourceEvent("factCheck", event);
     },
     run: async (claims, ctx) => {
+      const inputKey = factCheckInputKey(claims);
+
       if (claims.length === 0) {
         traceCollector.skipped("resource", "factCheck", {
           reason: "no claims",
         });
-        return { items: [] };
+        return { inputKey, value: { items: [] } };
       }
 
       const result = await model.factCheckClaims(claims, ctx.signal);
-      return normalizeFactCheckCoverage(claims, result, traceCollector);
+      return {
+        inputKey,
+        value: normalizeFactCheckCoverage(claims, result, traceCollector),
+      };
     },
   });
 
   const [styleReviewResult, styleReviewMeta] = createResource<
     { draft: string; styleGuide?: string },
-    StyleReviewResult
+    KeyedResourceResult<StyleReviewResult>
   >({
     input: () => ({
       draft: draftSignal.get(),
@@ -257,17 +270,37 @@ function createRuntimeGraph(
     onEvent(event) {
       recordGraphResourceEvent("styleReview", event);
     },
-    run: async (input, ctx) => model.reviewStyle(input, ctx.signal),
+    run: async (input, ctx) => ({
+      inputKey: styleReviewInputKey(input),
+      value: await model.reviewStyle(input, ctx.signal),
+    }),
   });
 
   const correctionPlanComputed = computed<CorrectionPlan | undefined>(() => {
     traceCollector.started("computed", "correctionPlan");
-    const factCheck = factCheckResult();
-    const styleReview = styleReviewResult();
+    const factCheckResource = factCheckResult();
+    const styleReviewResource = styleReviewResult();
+    const factCheck = factCheckResource?.value;
+    const styleReview = styleReviewResource?.value;
+    const upstreamResourcesSettled =
+      factCheckMeta.status() === "success" &&
+      styleReviewMeta.status() === "success";
+    const upstreamResultsCurrent =
+      factCheckResource?.inputKey === factCheckInputKey(claimsSignal.get()) &&
+      styleReviewResource?.inputKey ===
+        styleReviewInputKey({
+          draft: draftSignal.get(),
+          styleGuide: styleGuideSignal.get(),
+        });
 
-    if (!factCheck || !styleReview) {
+    if (
+      !factCheck ||
+      !styleReview ||
+      !upstreamResourcesSettled ||
+      !upstreamResultsCurrent
+    ) {
       traceCollector.skipped("computed", "correctionPlan", {
-        reason: "waiting for async resources",
+        reason: "waiting for current async resources",
       });
       return undefined;
     }
@@ -332,7 +365,7 @@ function createRuntimeGraph(
     const plan = correctionPlanComputed.get();
     const draft = revisedDraft();
     const currentEpoch = receiveEpochSignal.get();
-    const factCheck = factCheckResult();
+    const factCheck = factCheckResult()?.value;
     const resourcesSettled =
       factCheckMeta.status() === "success" &&
       styleReviewMeta.status() === "success" &&
@@ -414,8 +447,8 @@ function createRuntimeGraph(
 
       return {
         claims: claimsComputed.get(),
-        factCheckResult: factCheckResult(),
-        styleReviewResult: styleReviewResult(),
+        factCheckResult: factCheckResult()?.value,
+        styleReviewResult: styleReviewResult()?.value,
         correctionPlan: correctionPlanComputed.get(),
         revisedDraft: revisedDraft()?.text,
         finalResult,
@@ -571,6 +604,14 @@ function extractClaimCandidates(draft: string): Claim[] {
 
 function applyClaimBudget(claims: Claim[]): Claim[] {
   return claims.slice(0, DEFAULT_CLAIM_BUDGET);
+}
+
+function factCheckInputKey(claims: Claim[]) {
+  return JSON.stringify(claims);
+}
+
+function styleReviewInputKey(input: { draft: string; styleGuide?: string }) {
+  return JSON.stringify([input.draft, input.styleGuide ?? null]);
 }
 
 function areClaimsEqual(a: Claim[], b: Claim[]) {

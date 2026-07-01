@@ -131,4 +131,55 @@ describe("demo CLI", () => {
       }),
     ).rejects.toThrow(/Unsupported CORRECTION_MODEL: unsupported/);
   }, 20_000);
+
+  it("writes an inspectable eager versus reactive comparison artifact", async () => {
+    const cwd = process.cwd();
+    const outputDir = resolve(cwd, ".output");
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    await rm(outputDir, { recursive: true, force: true });
+    const { stdout } = await execAsync(`${pnpmCommand} run demo:compare`, {
+      cwd,
+      timeout: 20_000,
+    });
+
+    const comparisonJson = await readFile(
+      resolve(outputDir, "comparison.json"),
+      "utf8",
+    );
+    const report = JSON.parse(comparisonJson) as {
+      provider?: string;
+      scenarios?: Array<{
+        scenario?: string;
+        eager?: { factCheckCalls?: number };
+        reactive?: { factCheckCalls?: number };
+      }>;
+    };
+    const styleOnly = report.scenarios?.find(
+      (scenario) => scenario.scenario === "style-only",
+    );
+    const claimChanging = report.scenarios?.find(
+      (scenario) => scenario.scenario === "claim-changing",
+    );
+
+    expect({
+      provider: report.provider,
+      styleOnlyFactChecks: {
+        eager: styleOnly?.eager?.factCheckCalls,
+        reactive: styleOnly?.reactive?.factCheckCalls,
+      },
+      claimChangingFactChecks: {
+        eager: claimChanging?.eager?.factCheckCalls,
+        reactive: claimChanging?.reactive?.factCheckCalls,
+      },
+      stdout,
+    }).toEqual({
+      provider: "deterministic-mock",
+      styleOnlyFactChecks: { eager: 2, reactive: 1 },
+      claimChangingFactChecks: { eager: 3, reactive: 2 },
+      stdout: expect.stringMatching(
+        /Observed provider call counts[\s\S]*not a general performance benchmark/,
+      ),
+    });
+  }, 30_000);
 });

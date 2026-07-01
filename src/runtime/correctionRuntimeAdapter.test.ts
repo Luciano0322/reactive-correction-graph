@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createCorrectionRuntime } from "./createCorrectionRuntime.js";
 import { invokeCorrectionRuntime } from "./correctionRuntimeAdapter.js";
 
 describe("invokeCorrectionRuntime", () => {
@@ -27,5 +28,38 @@ describe("invokeCorrectionRuntime", () => {
     );
     expect(Array.isArray(roundTripped.trace)).toBe(true);
     expect(roundTripped.snapshot.statuses).toEqual(state.snapshot.statuses);
+  });
+
+  it("invokes a caller-owned runtime instance", async () => {
+    const runtime = createCorrectionRuntime();
+    const draft = "Signal-kernel coordinates async correction branches.";
+
+    runtime.receive({ draft });
+    await runtime.runUntilSettled();
+
+    const state = await invokeCorrectionRuntime(
+      {
+        draft,
+        styleGuide: "Use concise technical language.",
+      },
+      { runtime },
+    );
+
+    const receiveStartedCount = state.trace.filter(
+      (event) =>
+        event.scope === "runtime" &&
+        event.type === "started" &&
+        event.label === "receive",
+    ).length;
+
+    expect({
+      receiveStartedCount,
+      callerRuntimeSummary: runtime.emit().finalResult?.summary,
+    }).toEqual({
+      receiveStartedCount: 2,
+      callerRuntimeSummary: expect.arrayContaining([
+        "Apply style guide: Use concise technical language.",
+      ]),
+    });
   });
 });

@@ -866,6 +866,238 @@ Suggested subtasks:
 2. Task 22b: document a manual LangGraph + Ollama command.
 3. Task 22c: optionally add a skipped manual smoke test gated by `OLLAMA_MODEL`.
 
+### 23. Persistent Runtime Graph Session
+
+Scenario:
+
+```txt
+Given one graph session has already settled a correction input
+When the same session receives a style-only update and then a claim-changing update
+Then the signal-kernel runtime survives across graph invocations and only reruns affected work
+```
+
+Why this comes next:
+
+```txt
+Task 22 proves that LangGraph can invoke the runtime with mock or Ollama providers.
+The current adapter still creates a new runtime for every graph invocation.
+Task 23 moves the runtime's existing incremental behavior into an observable graph-session workflow.
+```
+
+Important boundary:
+
+```txt
+Serializable LangGraph state is not the same thing as a live runtime session.
+The live signal-kernel runtime should be owned by an explicit in-process session boundary.
+It should not be stored inside JSON graph state or presented as durable LangGraph checkpoint data.
+```
+
+Operations:
+
+1. create one graph session with a deterministic correction model.
+2. invoke it with an initial draft and wait for a final result.
+3. invoke the same session with only `styleGuide` changed.
+4. inspect the trace produced after the second invocation.
+5. invoke the same session with a draft whose extracted claims change.
+6. inspect the third result and trace.
+
+Acceptance:
+
+- the first invocation returns `finalResult`, graph trace, and runtime trace.
+- the style-only invocation includes `styleReview pending` and `rewriteDraft pending`.
+- the style-only invocation does not include `factCheck pending` or `factCheck stale`.
+- the claim-changing invocation includes `factCheck pending` and updates the final result.
+- each graph invocation still returns JSON-compatible state.
+- separate graph sessions do not share runtime state or trace history.
+- no live runtime object is written into graph state or output artifacts.
+- no LangGraph checkpointer or database is required for this in-process PoC.
+
+Suggested subtasks:
+
+1. Task 23a: add a failing adapter test for invoking an existing runtime instance.
+2. Task 23b: allow the adapter to use a caller-owned runtime without changing its output contract.
+3. Task 23c: add a graph-session boundary that owns one runtime instance.
+4. Task 23d: add a failing graph-session test for a style-only second invocation.
+5. Task 23e: add a failing graph-session test for a claim-changing third invocation.
+6. Task 23f: verify that two sessions remain isolated.
+
+### 24. Reactive vs Eager LangGraph Comparison
+
+Scenario:
+
+```txt
+Given an eager LangGraph correction path and a persistent reactive correction path
+When both process the same initial input, style-only update, and claim-changing update
+Then a comparison report shows which provider operations each path executed
+```
+
+Why this matters:
+
+```txt
+Integration alone does not prove that the reactive runtime adds value.
+Task 24 creates a deterministic baseline and measures recomputation directly.
+```
+
+Comparison boundary:
+
+```txt
+Both paths must use the same fixtures, correction model contract, and output shape.
+The first comparison should count provider operations instead of claiming wall-clock performance.
+```
+
+Proposed command:
+
+```bash
+pnpm run demo:compare
+```
+
+Proposed report fields:
+
+```txt
+scenario
+mode: eager | reactive
+factCheckCalls
+styleReviewCalls
+rewriteDraftCalls
+finalResultProduced
+```
+
+Acceptance:
+
+- both paths process the same ordered update sequence.
+- both paths use the same deterministic instrumented model.
+- both paths produce the same public final-result contract.
+- the style-only update does not increment reactive `factCheckCalls`.
+- the eager baseline records the fact-check work it executes for the same update.
+- the claim-changing update increments reactive `factCheckCalls`.
+- the comparison is written to `.output/comparison.json` or an equivalent inspectable artifact.
+- the CLI summary describes observed call counts without claiming general performance superiority.
+- no real LLM is required for automated comparison tests.
+
+Suggested subtasks:
+
+1. Task 24a: add an instrumented deterministic `CorrectionRuntimeModel` for call counting.
+2. Task 24b: define a JSON-compatible comparison report contract.
+3. Task 24c: add a failing test for the style-only comparison scenario.
+4. Task 24d: implement the smallest eager baseline and reactive session runner.
+5. Task 24e: add the claim-changing comparison scenario.
+6. Task 24f: add `demo:compare` and write the comparison artifact.
+
+### 25. Local LLM Evaluation Harness
+
+Scenario:
+
+```txt
+Given Ollama is available and several fixed correction fixtures exist
+When the evaluation command runs one or more trials
+Then it records structural reliability and runtime outcomes without affecting normal tests
+```
+
+Why this comes after Task 24:
+
+```txt
+Deterministic comparison should establish execution behavior first.
+Task 25 then measures the additional uncertainty introduced by a real local model.
+```
+
+Important constraint:
+
+```txt
+This is a manual evaluation harness, not a CI requirement.
+It should measure observable contracts and should not pretend to automatically prove factual correctness.
+```
+
+Proposed command:
+
+```bash
+OLLAMA_MODEL=llama3.2:3b pnpm run evaluate:ollama
+```
+
+Proposed evaluation fields:
+
+```txt
+fixture
+model
+trial
+settled | rejected
+durationMs
+extractedClaimCount
+factCheckCoverageCount
+normalizedMissingCount
+ignoredUnknownCount
+unresolvedIssueCount
+error
+```
+
+Acceptance:
+
+- evaluation uses at least three fixed fixtures with different correction signals.
+- the number of trials is configurable and defaults to a small value.
+- each trial records success, failure, duration, and fact-check coverage diagnostics.
+- invalid JSON, empty responses, timeout, and provider errors remain visible.
+- results are written to `.output/evaluation.json`.
+- normal `pnpm test` remains deterministic and does not require Ollama.
+- the report distinguishes structural reliability from subjective correction quality.
+- no cloud API key or external database is required.
+
+Suggested subtasks:
+
+1. Task 25a: define the evaluation result schema and add serialization tests.
+2. Task 25b: add two focused fixtures alongside the explanatory demo fixture.
+3. Task 25c: add a manual evaluator that invokes the graph with Ollama.
+4. Task 25d: collect provider diagnostics from runtime trace.
+5. Task 25e: add `evaluate:ollama` and document PowerShell and POSIX commands.
+6. Task 25f: summarize results without making unsupported quality claims.
+
+### 26. Publishable CLI Demo
+
+Scenario:
+
+```txt
+Given a developer clones the repository without the signal-kernel source repository beside it
+When they install dependencies and run the documented commands
+Then they can reproduce the deterministic comparison and inspect its artifacts
+```
+
+Definition of publishable:
+
+```txt
+This task publishes a reproducible GitHub CLI demo.
+It does not require a web UI or a globally installed npm CLI package.
+```
+
+Recommended verification path:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm run demo:compare
+```
+
+Acceptance:
+
+- `package.json` uses published signal-kernel versions instead of sibling-repository links.
+- a clean install succeeds from the committed lockfile.
+- the deterministic mock path is the default demo and requires no local services.
+- `demo:compare` produces the documented result, state, trace, and comparison artifacts.
+- README explains the architecture, commands, fixtures, and artifact inspection order.
+- README states precisely what the comparison proves and what it does not prove.
+- the optional LangGraph + Ollama path is clearly marked as manual.
+- automated tests cover the primary CLI commands.
+- CI runs install, typecheck, and tests on a clean environment.
+- the repository does not require UI, a database, LangSmith, or LangChain chains.
+- the Chinese article can cite Task 24 measurements and representative trace excerpts.
+
+Suggested subtasks:
+
+1. Task 26a: add a clean-install or frozen-lockfile verification step.
+2. Task 26b: add CI for typecheck and deterministic tests.
+3. Task 26c: add a final CLI smoke test for `demo:compare` artifacts.
+4. Task 26d: update README architecture and reproducibility instructions.
+5. Task 26e: document the comparison's evidence and limitations.
+6. Task 26f: prepare representative command output and trace excerpts for the article.
+
 ## How To Ask The Agent
 
 Good request:

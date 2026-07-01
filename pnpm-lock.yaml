@@ -15,11 +15,11 @@ importers:
         specifier: ^1.4.5
         version: 1.4.5(@langchain/core@1.2.1)(zod@4.4.3)
       '@signal-kernel/async-runtime':
-        specifier: link:../signal-kernel/packages/async-runtime
-        version: link:../signal-kernel/packages/async-runtime
+        specifier: 0.3.0
+        version: 0.3.0
       '@signal-kernel/core':
-        specifier: link:../signal-kernel/packages/core
-        version: link:../signal-kernel/packages/core
+        specifier: 0.1.3
+        version: 0.1.3
     devDependencies:
       '@types/node':
         specifier: ^22.10.0
@@ -502,6 +502,12 @@ packages:
     resolution: {integrity: sha512-X+zaP2x+j4RXGfbp/seSoRHWnPxzApilDszisZxbYH5C/jTxFhCtDNdPGZb9lJyYPs24wGxruPF7Y+sIXt9Gzw==}
     cpu: [x64]
     os: [win32]
+
+  '@signal-kernel/async-runtime@0.3.0':
+    resolution: {integrity: sha512-pH2Cw5hAD1MtfgCyel/Qb8Z1OWUNjBsOl97XxQDaI+r4URnurx2TLNqp8J+qLRDZgpZJKw+y+6b23owacAPp5w==}
+
+  '@signal-kernel/core@0.1.3':
+    resolution: {integrity: sha512-cnltdkJvFizsErv6x1mfZWI6yrm4CMaeL0uIKEhElEXtNSVxFdSFGd2CyRzeAc0VlGJLTfXNOQD5mpcXT6+RWw==}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -1079,6 +1085,12 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.61.1':
     optional: true
+
+  '@signal-kernel/async-runtime@0.3.0':
+    dependencies:
+      '@signal-kernel/core': 0.1.3
+
+  '@signal-kernel/core@0.1.3': {}
 
   '@standard-schema/spec@1.1.0': {}
 

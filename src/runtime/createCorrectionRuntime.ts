@@ -98,10 +98,14 @@ export function createCorrectionRuntime(
   let graph: RuntimeGraph | undefined;
   let expectedEmissionCount = 0;
   let previousState: CorrectionRuntimeInput | undefined;
+  let receiveEpoch = 0;
 
   return {
     receive(state) {
-      traceCollector.started("runtime", "receive");
+      receiveEpoch += 1;
+      const receiveMetadata = { receiveEpoch };
+
+      traceCollector.started("runtime", "receive", receiveMetadata);
       recordInputInvalidation(traceCollector, state, previousState);
 
       if (!graph) {
@@ -112,7 +116,7 @@ export function createCorrectionRuntime(
 
       expectedEmissionCount = graph.emittedFinalResultCount() + 1;
       previousState = state;
-      traceCollector.completed("runtime", "receive");
+      traceCollector.completed("runtime", "receive", receiveMetadata);
     },
     async runUntilSettled() {
       if (!graph) {

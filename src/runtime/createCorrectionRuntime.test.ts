@@ -74,6 +74,37 @@ describe("createCorrectionRuntime", () => {
     expect(finalResultEmittedCount).toBe(2);
   });
 
+  it("assigns one stable trace identity to each receive", async () => {
+    const runtime = createCorrectionRuntime();
+
+    runtime.receive({
+      draft: "Signal-kernel coordinates async correction branches.",
+    });
+    await runtime.runUntilSettled();
+
+    runtime.receive({
+      draft: "Signal-kernel coordinates async correction branches.",
+      styleGuide: "Use concise technical language.",
+    });
+    await runtime.runUntilSettled();
+
+    const receiveEvents = runtime.trace().filter(
+      (event) => event.scope === "runtime" && event.label === "receive",
+    );
+
+    expect(
+      receiveEvents.map((event) => ({
+        type: event.type,
+        receiveEpoch: event.metadata?.receiveEpoch,
+      })),
+    ).toEqual([
+      { type: "started", receiveEpoch: 1 },
+      { type: "completed", receiveEpoch: 1 },
+      { type: "started", receiveEpoch: 2 },
+      { type: "completed", receiveEpoch: 2 },
+    ]);
+  });
+
   it("reruns style review and rewrite without rerunning fact check when only style guide changes", async () => {
     const runtime = createCorrectionRuntime();
     const draft = "Signal-kernel can coordinate async correction branches.";

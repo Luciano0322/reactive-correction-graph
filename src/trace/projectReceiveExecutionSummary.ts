@@ -8,6 +8,11 @@ export type ReceiveExecutionSummary = {
   emitted: string[];
 };
 
+export type ReceiveExecutionSummaryReport = {
+  schemaVersion: 1;
+  summaries: ReceiveExecutionSummary[];
+};
+
 const CORRECTION_OPERATION_ORDER = [
   "factCheck",
   "styleReview",
@@ -78,6 +83,12 @@ export function serializeReceiveExecutionSummary(
   summary: ReceiveExecutionSummary,
 ): string {
   return `${JSON.stringify(summary, null, 2)}\n`;
+}
+
+export function serializeReceiveExecutionSummaryReport(
+  report: ReceiveExecutionSummaryReport,
+): string {
+  return `${JSON.stringify(report, null, 2)}\n`;
 }
 
 function isReceiveStart(event: TraceEvent) {

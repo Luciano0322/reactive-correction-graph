@@ -104,16 +104,22 @@ pnpm run verify:lockfile
 - `.output/trace.json`
 - `.output/comparison.json`
 - `.output/savings.json`
+- `.output/execution-summary.json`
+- `.output/manifest.json`
 
 Inspect them in this order:
 
-1. `savings.json` shows per-update avoided calls, reused receives, and
+1. `manifest.json` identifies this run and the schemas of every available
+   artifact.
+2. `savings.json` shows per-update avoided calls, reused receives, and
    superseded calls.
-2. `comparison.json` shows cumulative eager and reactive provider call counts
+3. `execution-summary.json` shows recomputed, reused, superseded, and emitted
+   work for each update.
+4. `comparison.json` shows cumulative eager and reactive provider call counts
    for the style-only and claim-changing transitions.
-3. `result.md` shows the representative revised draft and correction summary.
-4. `state.json` shows the final persistent-session state and its runtime trace.
-5. `trace.json` isolates that runtime lifecycle for easier inspection.
+5. `result.md` shows the representative revised draft and correction summary.
+6. `state.json` shows the final persistent-session state and its runtime trace.
+7. `trace.json` isolates that runtime lifecycle for easier inspection.
 
 ## Comparison Evidence
 
@@ -193,7 +199,7 @@ pnpm run demo:graph
 ```
 
 Both commands use the deterministic mock provider by default and write
-`result.md`, `state.json`, and `trace.json` under `.output`.
+`result.md`, `state.json`, `trace.json`, and `manifest.json` under `.output`.
 
 Optional Ollama commands are manual integration paths:
 

@@ -772,6 +772,8 @@ Output written to:
 - ./.output/trace.json
 - ./.output/comparison.json
 - ./.output/savings.json
+- ./.output/execution-summary.json
+- ./.output/manifest.json
 ```
 
 這些數字是累積 call counts：

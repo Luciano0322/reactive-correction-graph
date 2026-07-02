@@ -1165,6 +1165,317 @@ Suggested subtasks:
 5. Task 26e: document the comparison's evidence and limitations.
 6. Task 26f: prepare representative command output and trace excerpts for the article.
 
+## Post-CLI Direction
+
+Task 26 completes the publishable CLI demo milestone:
+
+```txt
+- deterministic mock execution requires no external service
+- direct runtime and LangGraph paths are covered
+- persistent sessions demonstrate selective recomputation
+- eager/reactive comparison produces inspectable evidence
+- Ollama evaluation remains optional and does not affect CI
+- clean install, typecheck, tests, and CLI smoke paths are documented
+```
+
+This does not make the project a general-purpose installed CLI. A global `bin`,
+`--help`, `--version`, and a full argument parser may be added later, but they do
+not block the next research milestone.
+
+The next phase should turn raw trace events into a stable explanation of the
+project's core value:
+
+```txt
+Recompute only what changed.
+Reuse what is still valid.
+Reject stale results.
+Explain every recomputation.
+```
+
+### 27. Receive-Scoped Execution Summary
+
+Scenario:
+
+```txt
+Given a persistent runtime processes multiple receives
+When its cumulative trace is projected into an execution summary
+Then each receive explains which operations were recomputed, reused, superseded, and emitted
+```
+
+Why this comes first:
+
+```txt
+Raw trace events are useful for debugging but are too low-level for a report or UI.
+The report layer needs one stable, JSON-compatible projection shared by CLI and web consumers.
+```
+
+Important boundary:
+
+```txt
+A resource pending event is not automatically a provider invocation.
+Actual provider calls must come from model instrumentation or an explicit model-call event.
+```
+
+Acceptance:
+
+- every runtime receive has a stable receive index or epoch in the trace projection.
+- the projector is a pure function over trace data.
+- a style-only receive reports `factCheck` as reused and `styleReview` plus `rewriteDraft` as recomputed.
+- a claim-changing receive reports renewed fact-check work.
+- superseded async work remains distinguishable from completed work.
+- the summary does not depend on wall-clock timing to group events.
+- the result is JSON-compatible and keeps raw trace data unchanged.
+
+Suggested TDD slices:
+
+1. Task 27a: add a failing trace test for receive identity metadata.
+2. Task 27b: attach the smallest stable receive epoch to runtime trace events.
+3. Task 27c: add a pure execution-summary projector for one receive.
+4. Task 27d: characterize the style-only reuse scenario.
+5. Task 27e: characterize claim-changing and superseded-work scenarios.
+6. Task 27f: serialize the summary without changing the runtime public contract.
+
+### 28. Recompute Savings Metrics
+
+Scenario:
+
+```txt
+Given eager and reactive paths process the same ordered updates
+When the comparison report is generated
+Then it quantifies actual calls, reused work, and avoided recomputation per operation
+```
+
+Proposed per-operation fields:
+
+```txt
+eagerCalls
+reactiveCalls
+avoidedCalls
+reusedReceives
+supersededCalls
+```
+
+Metric rule:
+
+```txt
+avoidedCalls = eagerCalls - reactiveCalls
+
+This value is valid only when fixtures, model contract, and update order are identical.
+```
+
+Acceptance:
+
+- style-only updates report one avoided fact-check call for the deterministic fixture.
+- claim-changing updates do not claim fact-check reuse when claims changed.
+- actual model invocations are not inferred only from signal invalidation events.
+- `supersededCalls` is reported separately from successfully reused work.
+- negative or incomparable savings are represented explicitly instead of silently clamped.
+- the CLI describes fixture-specific observed counts, not general speed or accuracy superiority.
+- planned verification attempts are not classified as wasted recomputation.
+
+Suggested TDD slices:
+
+1. Task 28a: define and test the versioned savings report contract.
+2. Task 28b: calculate style-only avoided calls from existing comparison counts.
+3. Task 28c: add claim-changing and no-savings cases.
+4. Task 28d: add superseded-work accounting.
+5. Task 28e: render a concise savings summary in `demo:compare`.
+
+### 29. Structural Reliability Scorecard
+
+Scenario:
+
+```txt
+Given deterministic contract evidence and optional provider trials
+When a reliability scorecard is built
+Then structural reliability, provider compatibility, execution efficiency, and semantic quality remain separate
+```
+
+Initial versioned structural policy:
+
+```txt
+settlement rate:          30
+claim coverage:           25
+unknown-ID containment:   15
+stale-result protection:  20
+session isolation:        10
+total:                   100
+```
+
+Hard gates:
+
+```txt
+- stale work overwrites the latest result
+- a runtime emits a misleading or missing final result after reporting success
+- state leaks between independent sessions
+```
+
+Any hard-gate failure makes the structural verdict fail regardless of the
+weighted score.
+
+Acceptance:
+
+- the policy has an explicit `policyVersion`.
+- weights total 100 and are tested as configuration, not scattered constants.
+- hard-gate failures cannot be hidden by a high weighted score.
+- provider compatibility is reported as settled/rejected trial counts and rates.
+- execution savings remain a separate metric and do not increase reliability.
+- repeated fact checks do not automatically increase factual confidence.
+- subjective correction quality remains `not-evaluated` until an evaluator contract exists.
+- missing or not-applicable evidence is represented as such, not scored as success.
+
+Suggested TDD slices:
+
+1. Task 29a: define the versioned scorecard input and output contracts.
+2. Task 29b: test weight validation and deterministic score calculation.
+3. Task 29c: add hard-gate verdict behavior.
+4. Task 29d: add provider compatibility without mixing it into the structural score.
+5. Task 29e: add explicit evidence gaps and quality limitations.
+6. Task 29f: document why execution count is evidence of work, not proof of correctness.
+
+### 30. Versioned Artifact Bundle
+
+Scenario:
+
+```txt
+Given a demo or comparison command writes several artifacts
+When an external report consumer opens the output directory
+Then one manifest identifies compatible schemas and every artifact in the run
+```
+
+Proposed artifact:
+
+```txt
+.output/manifest.json
+```
+
+Acceptance:
+
+- the manifest contains a bundle schema version, command mode, provider, and relative artifact paths.
+- each referenced JSON artifact declares or inherits a known schema version.
+- the bundle can include result, state, raw trace, execution summary, comparison, evaluation, and scorecard artifacts.
+- missing optional artifacts are explicit and do not break deterministic mock runs.
+- tests inject any clock or run identifier needed for stable assertions.
+- the bundle contains serialized data only; runtime instances never enter graph or artifact state.
+- one validator reports unsupported or malformed bundle versions clearly.
+
+Suggested TDD slices:
+
+1. Task 30a: define a minimal manifest schema and serialization test.
+2. Task 30b: write a manifest for the deterministic demo path.
+3. Task 30c: include comparison and execution-summary artifacts.
+4. Task 30d: validate missing, malformed, and unsupported artifacts.
+5. Task 30e: add a CLI smoke test that loads the bundle it just wrote.
+
+### 31. Static Evidence Report
+
+Scenario:
+
+```txt
+Given a deterministic artifact bundle exists
+When the report command runs
+Then it writes a self-contained HTML report that explains reuse and recomputation without starting a server
+```
+
+Proposed command:
+
+```bash
+pnpm run demo:report
+```
+
+Acceptance:
+
+- `.output/report.html` is generated from the versioned bundle through a report view model.
+- the first view makes eager versus reactive operation counts understandable.
+- each update shows recomputed, reused, superseded, and emitted work.
+- reliability boundaries and `not-evaluated` quality remain visible.
+- the report works without a database, live runtime, Ollama, or LangSmith.
+- the static report is readable on desktop and mobile and supports keyboard navigation.
+- tests assert user-visible report content instead of private template structure.
+- the deterministic report path remains suitable for CI.
+
+Suggested TDD slices:
+
+1. Task 31a: derive a report view model from a valid bundle.
+2. Task 31b: render one deterministic comparison as semantic HTML.
+3. Task 31c: add receive-level reuse and recomputation details.
+4. Task 31d: add reliability and evidence-limit sections.
+5. Task 31e: add the report CLI and output smoke test.
+6. Task 31f: verify responsive layout and accessibility with browser-level tests.
+
+### 32. Interactive Local Web Session
+
+Scenario:
+
+```txt
+Given a developer starts the local demo
+When they submit an initial draft, a style-only update, and a claim-changing update
+Then one persistent graph session processes the changes and the UI explains what reran
+```
+
+Architecture boundary:
+
+```txt
+Web input -> session API -> existing graph-session adapter -> correction runtime
+Runtime artifacts -> shared report view model -> web UI
+```
+
+Acceptance:
+
+- the web layer calls the existing runtime/session contracts instead of reimplementing correction logic.
+- one browser session owns one runtime instance and two sessions remain isolated.
+- mock mode is the default and requires no API key.
+- the user can apply initial, style-only, and claim-changing updates without restarting the process.
+- the UI distinguishes stable previous output from current pending work.
+- reset and disposal remove the owned session.
+- API and browser tests cover session continuity, isolation, errors, and trace presentation.
+- the first interactive version does not require authentication, a database, or cloud deployment.
+
+Suggested TDD slices:
+
+1. Task 32a: add an in-process session registry behind a narrow HTTP boundary.
+2. Task 32b: test create, invoke, reset, and dispose session behavior.
+3. Task 32c: expose versioned bundle or view-model responses from the API.
+4. Task 32d: build the initial interactive correction screen in mock mode.
+5. Task 32e: visualize pending, reused, recomputed, and superseded work.
+6. Task 32f: add browser tests for sequential updates and session isolation.
+
+### 33. Independent Fact-Check Corroboration
+
+Scenario:
+
+```txt
+Given a claim requires stronger evidence than one verifier can provide
+When multiple explicitly configured verifiers inspect it
+Then the report distinguishes corroboration attempts from reactive recomputation
+```
+
+Why this is separate:
+
+```txt
+Running the same work again can be intentional evidence gathering or accidental waste.
+Those two meanings must never share one counter.
+```
+
+Acceptance:
+
+- the contract records verifier identity, attempt purpose, result, and evidence references.
+- repeated calls to the same model are not presented as independent evidence by default.
+- agreement, disagreement, and insufficient-evidence states remain visible.
+- `verificationAttempts` and `recomputationCalls` are separate metrics.
+- deterministic verifier doubles establish behavior before any real multi-model experiment.
+- quorum policy is configurable and versioned.
+- no consensus result is described as factual truth without external evidence evaluation.
+
+Suggested TDD slices:
+
+1. Task 33a: define verifier identity and attempt-purpose contracts.
+2. Task 33b: test two deterministic verifiers that agree.
+3. Task 33c: preserve disagreement and insufficient-evidence outcomes.
+4. Task 33d: add a versioned quorum policy.
+5. Task 33e: expose corroboration separately in trace, scorecard, and report data.
+6. Task 33f: add an optional manual multi-model evaluation path.
+
 ## How To Ask The Agent
 
 Good request:

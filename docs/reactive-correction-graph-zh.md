@@ -760,6 +760,10 @@ Observed provider call counts:
 - style-only; factCheck eager=2 reactive=1; styleReview eager=2 reactive=2; rewriteDraft eager=2 reactive=2
 - claim-changing; factCheck eager=3 reactive=2; styleReview eager=3 reactive=3; rewriteDraft eager=3 reactive=3
 
+Recompute savings by update:
+- style-only; factCheck avoided=1 reused=1 superseded=0; styleReview avoided=0 reused=0 superseded=0; rewriteDraft avoided=0 reused=0 superseded=0
+- claim-changing; factCheck avoided=0 reused=0 superseded=0; styleReview avoided=0 reused=0 superseded=0; rewriteDraft avoided=0 reused=0 superseded=0
+
 These deterministic fixture counts are not a general performance benchmark.
 
 Output written to:
@@ -767,6 +771,7 @@ Output written to:
 - ./.output/state.json
 - ./.output/trace.json
 - ./.output/comparison.json
+- ./.output/savings.json
 ```
 
 這些數字是累積 call counts：
@@ -821,3 +826,68 @@ style-only 更新沒有讓 fact-check 失效；claim-changing 更新則確實重
 LangGraph 無法透過 caching、checkpointing 或其他 workflow 設計達成 reuse。
 目前能支持的結論只有：在這兩個固定 transition 中，signal-kernel runtime 的局部
 invalidation 會避免不必要的 fact-check，同時保留相同的 deterministic output。
+
+## Task 27-29：執行證據不等於答案正確
+
+Task 27 先把累積 trace 投影成 receive-scoped execution summary。每次 receive 都有
+穩定的 `receiveEpoch`，summary 會分開列出：
+
+```txt
+recomputed
+reused
+superseded
+emitted
+```
+
+這讓 style-only update 可以被描述成「重用 fact-check，只重算 style review 與 rewrite」，
+而 claim-changing update 則會明確重新執行 fact-check。尚未完成就被新 receive 取代的工作
+會進入 `superseded`，不會偽裝成成功重用。
+
+Task 28 再把兩種不同來源的 evidence 組合起來：
+
+- instrumented model 提供真實 provider call counts。
+- execution summary 提供 reused 與 superseded evidence。
+
+`avoidedCalls` 只在 fixture、model contract 與 update order 相同時，使用以下公式：
+
+```txt
+avoidedCalls = eagerCalls - reactiveCalls
+```
+
+而且必須計算單次 update 的 delta。`claim-changing` 的累積 fact-check counts 是 `3 vs 2`，
+但扣除上一個 style-only scenario 後，本次 update 是 `1 vs 1`，所以 avoided calls 是 `0`，
+不能把先前已省下的工作重複宣稱一次。
+
+Task 29 則建立 versioned structural reliability scorecard。初版權重是：
+
+| Dimension | Weight |
+| --- | ---: |
+| Runtime settlement rate | 30 |
+| Claim coverage | 25 |
+| Unknown-ID containment | 15 |
+| Stale-result protection | 20 |
+| Session isolation | 10 |
+
+另外有三個 hard gates：stale result overwrite、錯誤或缺失的 successful final result、
+以及跨 session state leak。任何 hard gate failed，都會讓 verdict 成為 `fail`，即使 weighted
+score 仍然很高。缺少必要 evidence 時，score 是 `null`，verdict 是
+`insufficient-evidence`，不會把沒有測到的項目當成通過。
+
+### 五種 evidence 要分開看
+
+| Evidence | 可以支持的結論 | 不能證明的事情 |
+| --- | --- | --- |
+| Avoided/reused/superseded counts | 固定 transition 下的執行效率 | 事實正確或文字品質 |
+| Structural reliability | Runtime settlement、coverage、stale safety、session isolation | Provider 可攜性或答案正確性 |
+| Provider compatibility | 某個 model/provider 遵守 runtime contract 的比例 | 被接受內容的準確度 |
+| 重複 verification attempts | 系統刻意做了多少驗證工作 | 驗證彼此獨立或結論為真 |
+| Subjective correction quality | 未來 evaluator 的預留邊界 | 值為 `not-evaluated` 時不能下任何品質結論 |
+
+這裡最容易混淆的是「多執行一次」。如果同一個 fact check 因失效傳播被意外重跑，
+它是 recomputation waste；如果系統刻意請另一個 verifier 使用不同 evidence source 交叉檢查，
+它才可能是 corroboration。即使如此，多次同意仍不是事實真值。未來 benchmark 必須另外記錄
+verifier identity、evidence source、agreement 與 disagreement，不能只把 call count 乘上權重。
+
+因此目前 scorecard 會把 execution efficiency、provider compatibility、structural reliability
+分開輸出，`subjectiveCorrectionQuality` 維持 `not-evaluated`。這個限制不是缺點，而是避免
+工具用看似精確的分數宣稱它其實沒有測量的事情。

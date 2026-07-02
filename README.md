@@ -137,6 +137,26 @@ deterministic transitions, the evidence shows:
 - Selective invalidation preserves the same deterministic final result as the
   fresh eager baseline used by this demo.
 
+## Evidence Boundaries
+
+Execution counts answer how much work ran and whether a fixed transition reused
+or superseded work. They do not answer whether an LLM response is factually
+correct, well written, or useful.
+
+| Evidence | What it supports | What it does not prove |
+| --- | --- | --- |
+| `avoidedCalls`, `reusedReceives`, `supersededCalls` | Execution efficiency for the fixed comparison | Factual accuracy or correction quality |
+| Structural reliability score and hard gates | Runtime settlement, coverage, stale-result safety, and session isolation | Provider portability or semantic correctness |
+| Provider compatibility rate | How often one provider/model satisfies the runtime contract | Accuracy of accepted answers |
+| Repeated verification attempts | Amount of deliberate verification work | Independent corroboration unless verifier and evidence sources differ |
+| `subjectiveCorrectionQuality` | Reserved boundary for a future evaluator | Nothing while its value is `not-evaluated` |
+
+Intentional verification and accidental recomputation are different counters.
+Repeating the same fact check may be useful, but repetition alone does not add
+confidence. A future corroboration benchmark must record verifier identity,
+evidence sources, agreement, and disagreement separately from reactive
+recomputation.
+
 ## Limitations
 
 - This is a fixed deterministic comparison, not a latency benchmark, token

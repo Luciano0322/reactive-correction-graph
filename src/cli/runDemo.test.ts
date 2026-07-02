@@ -203,6 +203,10 @@ describe("demo CLI", () => {
       resolve(outputDir, "comparison.json"),
       "utf8",
     );
+    const savingsJson = await readFile(
+      resolve(outputDir, "savings.json"),
+      "utf8",
+    );
     const resultMarkdown = await readFile(resolve(outputDir, "result.md"), "utf8");
     const stateJson = await readFile(resolve(outputDir, "state.json"), "utf8");
     const traceJson = await readFile(resolve(outputDir, "trace.json"), "utf8");
@@ -212,6 +216,18 @@ describe("demo CLI", () => {
         scenario?: string;
         eager?: { factCheckCalls?: number };
         reactive?: { factCheckCalls?: number };
+      }>;
+    };
+    const savingsReport = JSON.parse(savingsJson) as {
+      schemaVersion?: number;
+      scenarios?: Array<{
+        scenario?: string;
+        operations?: Array<{
+          operation?: string;
+          avoidedCalls?: number | null;
+          reusedReceives?: number;
+          supersededCalls?: number;
+        }>;
       }>;
     };
     const state = JSON.parse(stateJson) as {
@@ -225,6 +241,19 @@ describe("demo CLI", () => {
     const claimChanging = report.scenarios?.find(
       (scenario) => scenario.scenario === "claim-changing",
     );
+    const styleOnlySavings = savingsReport.scenarios?.find(
+      (scenario) => scenario.scenario === "style-only",
+    );
+    const claimChangingSavings = savingsReport.scenarios?.find(
+      (scenario) => scenario.scenario === "claim-changing",
+    );
+    const styleOnlyFactCheckSavings = styleOnlySavings?.operations?.find(
+      (operation) => operation.operation === "factCheck",
+    );
+    const claimChangingFactCheckSavings =
+      claimChangingSavings?.operations?.find(
+        (operation) => operation.operation === "factCheck",
+      );
 
     expect({
       provider: report.provider,
@@ -236,6 +265,9 @@ describe("demo CLI", () => {
         eager: claimChanging?.eager?.factCheckCalls,
         reactive: claimChanging?.reactive?.factCheckCalls,
       },
+      savingsSchemaVersion: savingsReport.schemaVersion,
+      styleOnlyFactCheckSavings,
+      claimChangingFactCheckSavings,
       resultMarkdown,
       finalResultProduced: Boolean(state.finalResult?.revisedDraft),
       traceMatchesState: trace === undefined
@@ -252,12 +284,25 @@ describe("demo CLI", () => {
       provider: "deterministic-mock",
       styleOnlyFactChecks: { eager: 2, reactive: 1 },
       claimChangingFactChecks: { eager: 3, reactive: 2 },
+      savingsSchemaVersion: 1,
+      styleOnlyFactCheckSavings: expect.objectContaining({
+        operation: "factCheck",
+        avoidedCalls: 1,
+        reusedReceives: 1,
+        supersededCalls: 0,
+      }),
+      claimChangingFactCheckSavings: expect.objectContaining({
+        operation: "factCheck",
+        avoidedCalls: 0,
+        reusedReceives: 0,
+        supersededCalls: 0,
+      }),
       resultMarkdown: expect.stringContaining("## Revised Draft"),
       finalResultProduced: true,
       traceMatchesState: true,
       finalResultEmitted: true,
       stdout: expect.stringMatching(
-        /Observed provider call counts[\s\S]*not a general performance benchmark[\s\S]*result\.md[\s\S]*state\.json[\s\S]*trace\.json[\s\S]*comparison\.json/,
+        /Recompute savings by update[\s\S]*style-only[\s\S]*factCheck avoided=1 reused=1 superseded=0[\s\S]*claim-changing[\s\S]*factCheck avoided=0 reused=0 superseded=0[\s\S]*not a general performance benchmark[\s\S]*savings\.json/,
       ),
     });
   }, 30_000);

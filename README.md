@@ -103,14 +103,17 @@ pnpm run verify:lockfile
 - `.output/state.json`
 - `.output/trace.json`
 - `.output/comparison.json`
+- `.output/savings.json`
 
 Inspect them in this order:
 
-1. `comparison.json` shows eager and reactive provider call counts for the
-   style-only and claim-changing transitions.
-2. `result.md` shows the representative revised draft and correction summary.
-3. `state.json` shows the final persistent-session state and its runtime trace.
-4. `trace.json` isolates that runtime lifecycle for easier inspection.
+1. `savings.json` shows per-update avoided calls, reused receives, and
+   superseded calls.
+2. `comparison.json` shows cumulative eager and reactive provider call counts
+   for the style-only and claim-changing transitions.
+3. `result.md` shows the representative revised draft and correction summary.
+4. `state.json` shows the final persistent-session state and its runtime trace.
+5. `trace.json` isolates that runtime lifecycle for easier inspection.
 
 ## Comparison Evidence
 

@@ -154,6 +154,38 @@ separate evaluation rubric and reviewed reference examples.
 This is a manual command. Normal `pnpm test` uses a deterministic local HTTP
 boundary and does not require Ollama to be installed or running.
 
+## Manual Multi-Model Corroboration
+
+This optional command asks two or more explicitly configured Ollama models to
+inspect one claim. It writes the versioned result, individual verification
+attempts, quorum details, and verification trace to
+`.output/corroboration.json`.
+
+PowerShell:
+
+```powershell
+$env:OLLAMA_CORROBORATION_MODELS = "llama3.2:3b,qwen3:4b"
+$env:CORROBORATION_MINIMUM_MODELS = "2"
+pnpm run evaluate:corroboration -- "Signal-kernel tracks reactive dependencies."
+```
+
+Git Bash or other POSIX-style shells:
+
+```bash
+OLLAMA_CORROBORATION_MODELS=llama3.2:3b,qwen3:4b \
+CORROBORATION_MINIMUM_MODELS=2 \
+pnpm run evaluate:corroboration -- "Signal-kernel tracks reactive dependencies."
+```
+
+`OLLAMA_BASE_URL` can override the local Ollama endpoint. The minimum model
+count defaults to the number of configured entries. Repeating the same model
+under different verifier IDs produces `insufficient-evidence` rather than
+independent corroboration. Agreement records deliberate verification work; it
+does not prove that the claim is factually true or that the models use
+independent external sources.
+
+This path is manual and is not part of normal tests or CI.
+
 ## Provider Selection
 
 Default mock provider:

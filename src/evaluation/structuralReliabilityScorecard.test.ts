@@ -275,6 +275,42 @@ describe("structuralReliabilityScorecard", () => {
       subjectiveCorrectionQuality: "not-evaluated",
     });
   });
+
+  it("reports verification attempts separately from recomputation calls", () => {
+    const input = completeScorecardInput();
+    input.corroboration = {
+      policyVersion: 1,
+      outcome: "agreement",
+      verificationAttempts: 3,
+      independentModels: 3,
+    };
+    input.executionEfficiency = {
+      savingsReportSchemaVersion: 1,
+      recomputationCalls: 4,
+    };
+
+    const scorecard = createStructuralReliabilityScorecard(input);
+
+    expect({
+      structuralScore: scorecard.structuralReliability.score,
+      corroboration: scorecard.corroboration,
+      executionEfficiency: scorecard.executionEfficiency,
+    }).toEqual({
+      structuralScore: 87.5,
+      corroboration: {
+        status: "reported-separately",
+        policyVersion: 1,
+        outcome: "agreement",
+        verificationAttempts: 3,
+        independentModels: 3,
+      },
+      executionEfficiency: {
+        status: "reported-separately",
+        savingsReportSchemaVersion: 1,
+        recomputationCalls: 4,
+      },
+    });
+  });
 });
 
 function completeScorecardInput(): StructuralReliabilityScorecardInput {

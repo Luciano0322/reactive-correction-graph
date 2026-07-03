@@ -54,6 +54,32 @@ export type EvidenceReportViewModel = {
       status: ReliabilityEvidenceStatus;
     }>;
   };
+  evidenceActivity?: {
+    verification:
+      | {
+          status: "reported-separately";
+          policyVersion: 1;
+          outcome: "agreement" | "disagreement" | "insufficient-evidence";
+          verificationAttempts: number;
+          independentModels: number;
+        }
+      | {
+          status: "not-evaluated";
+          policyVersion: null;
+          outcome: null;
+          verificationAttempts: null;
+          independentModels: null;
+        };
+    recomputation:
+      | {
+          status: "reported-separately";
+          recomputationCalls: number;
+        }
+      | {
+          status: "not-evaluated";
+          recomputationCalls: null;
+        };
+  };
   evidenceLimits: string[];
   scenarios: EvidenceReportScenarioViewModel[];
 };
@@ -119,6 +145,7 @@ export function createEvidenceReportViewModel(
       provider: "deterministic-mock",
     },
     reliability: reliabilityViewModel(scorecard),
+    ...evidenceActivityViewModel(scorecard),
     evidenceLimits: [...EVIDENCE_LIMITS],
     scenarios: savings.scenarios.map((scenario, index) => {
       const comparisonScenario = comparison.scenarios.find(
@@ -157,6 +184,46 @@ export function createEvidenceReportViewModel(
         })),
       };
     }),
+  };
+}
+
+function evidenceActivityViewModel(
+  scorecard: StructuralReliabilityScorecard | null,
+): Pick<EvidenceReportViewModel, "evidenceActivity"> {
+  const corroboration = scorecard?.corroboration;
+  const recomputationCalls =
+    scorecard?.executionEfficiency.recomputationCalls;
+
+  if (!corroboration && recomputationCalls === undefined) return {};
+
+  return {
+    evidenceActivity: {
+      verification: corroboration
+        ? {
+            status: "reported-separately",
+            policyVersion: corroboration.policyVersion,
+            outcome: corroboration.outcome,
+            verificationAttempts: corroboration.verificationAttempts,
+            independentModels: corroboration.independentModels,
+          }
+        : {
+            status: "not-evaluated",
+            policyVersion: null,
+            outcome: null,
+            verificationAttempts: null,
+            independentModels: null,
+          },
+      recomputation:
+        recomputationCalls === undefined
+          ? {
+              status: "not-evaluated",
+              recomputationCalls: null,
+            }
+          : {
+              status: "reported-separately",
+              recomputationCalls,
+            },
+    },
   };
 }
 

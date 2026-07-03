@@ -53,6 +53,13 @@ export type ProviderCompatibilitySummary = {
   settlementRate: number | null;
 };
 
+export type CorroborationEvidence = {
+  policyVersion: 1;
+  outcome: "agreement" | "disagreement" | "insufficient-evidence";
+  verificationAttempts: number;
+  independentModels: number;
+};
+
 export type StructuralReliabilityScorecardInput = {
   policyVersion: 1;
   runtimeSettlement: RuntimeSettlementEvidence | null;
@@ -66,8 +73,10 @@ export type StructuralReliabilityScorecardInput = {
     totalUnknownIds: number;
   } | null;
   contractEvidence: StructuralReliabilityHardGates;
+  corroboration?: CorroborationEvidence;
   executionEfficiency: {
     savingsReportSchemaVersion: 1;
+    recomputationCalls?: number;
   } | null;
 };
 
@@ -100,9 +109,13 @@ export type StructuralReliabilityScorecard = {
     hardGates: StructuralReliabilityHardGates;
   };
   providerCompatibility: ProviderCompatibilitySummary;
+  corroboration?: CorroborationEvidence & {
+    status: "reported-separately";
+  };
   executionEfficiency: {
     status: "reported-separately" | "not-evaluated";
     savingsReportSchemaVersion: 1 | null;
+    recomputationCalls?: number;
   };
   subjectiveCorrectionQuality: "not-evaluated";
 };
@@ -228,11 +241,25 @@ export function createStructuralReliabilityScorecard(
     providerCompatibility: summarizeProviderCompatibility(
       input.providerCompatibility,
     ),
+    ...(input.corroboration
+      ? {
+          corroboration: {
+            status: "reported-separately" as const,
+            ...input.corroboration,
+          },
+        }
+      : {}),
     executionEfficiency: input.executionEfficiency
       ? {
           status: "reported-separately",
           savingsReportSchemaVersion:
             input.executionEfficiency.savingsReportSchemaVersion,
+          ...(input.executionEfficiency.recomputationCalls === undefined
+            ? {}
+            : {
+                recomputationCalls:
+                  input.executionEfficiency.recomputationCalls,
+              }),
         }
       : {
           status: "not-evaluated",

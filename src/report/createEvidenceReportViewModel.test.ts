@@ -115,6 +115,47 @@ describe("createEvidenceReportViewModel", () => {
       ],
     });
   });
+
+  it("exposes corroboration and recomputation as separate report data", () => {
+    const scorecard = createStructuralReliabilityScorecard({
+      policyVersion: 1,
+      runtimeSettlement: { settledRuns: 4, rejectedRuns: 0 },
+      providerCompatibility: { settledTrials: 4, rejectedTrials: 0 },
+      claimCoverage: { coveredClaims: 4, totalClaims: 4 },
+      unknownIdContainment: { containedUnknownIds: 2, totalUnknownIds: 2 },
+      contractEvidence: {
+        staleResultProtection: "passed",
+        finalResultIntegrity: "passed",
+        sessionIsolation: "passed",
+      },
+      corroboration: {
+        policyVersion: 1,
+        outcome: "agreement",
+        verificationAttempts: 3,
+        independentModels: 3,
+      },
+      executionEfficiency: {
+        savingsReportSchemaVersion: 1,
+        recomputationCalls: 4,
+      },
+    });
+
+    const viewModel = createEvidenceReportViewModel(comparisonBundle(scorecard));
+
+    expect(viewModel.evidenceActivity).toEqual({
+      verification: {
+        status: "reported-separately",
+        policyVersion: 1,
+        outcome: "agreement",
+        verificationAttempts: 3,
+        independentModels: 3,
+      },
+      recomputation: {
+        status: "reported-separately",
+        recomputationCalls: 4,
+      },
+    });
+  });
 });
 
 function comparisonBundle(

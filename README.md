@@ -223,6 +223,7 @@ Optional Ollama commands are manual integration paths:
 ```bash
 pnpm run demo:ollama ./src/examples/input.md
 pnpm run evaluate:ollama
+pnpm run evaluate:corroboration -- "claim to verify"
 ```
 
 Ollama setup, PowerShell syntax, POSIX syntax, trial configuration, and report

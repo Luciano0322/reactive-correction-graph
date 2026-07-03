@@ -488,6 +488,67 @@ describe("demo CLI", () => {
     });
   }, 30_000);
 
+  it("writes a loadable static evidence report from a comparison bundle", async () => {
+    const cwd = process.cwd();
+    const outputDir = resolve(cwd, ".output");
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    await rm(outputDir, { recursive: true, force: true });
+    await execAsync(`${pnpmCommand} run demo:compare`, {
+      cwd,
+      timeout: 20_000,
+    });
+    const { stdout } = await execAsync(`${pnpmCommand} run demo:report`, {
+      cwd,
+      timeout: 10_000,
+    });
+
+    const bundle = await loadArtifactBundle(outputDir);
+    const reportHtml = bundle.artifacts.report?.content;
+    const visibleText =
+      typeof reportHtml === "string" ? extractVisibleText(reportHtml) : "";
+
+    expect({
+      command: bundle.manifest.run.command,
+      mode: bundle.manifest.run.mode,
+      report: bundle.artifacts.report,
+      visibleText,
+      stdout,
+    }).toEqual({
+      command: "demo:report",
+      mode: "report",
+      report: {
+        path: "report.html",
+        mediaType: "text/html",
+        schema: null,
+        content: expect.stringContaining("<!doctype html>"),
+      },
+      visibleText: expect.stringMatching(
+        /Reactive Correction Evidence Report[\s\S]*Style-only update[\s\S]*Claim-changing update[\s\S]*Reliability[\s\S]*Not evaluated[\s\S]*Evidence limits/,
+      ),
+      stdout: expect.stringContaining("./.output/report.html"),
+    });
+  }, 30_000);
+
+  it("explains how to create a missing comparison bundle for the report", async () => {
+    const cwd = process.cwd();
+    const outputDir = resolve(cwd, ".output");
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    await rm(outputDir, { recursive: true, force: true });
+
+    await expect(
+      execAsync(`${pnpmCommand} run demo:report`, {
+        cwd,
+        timeout: 10_000,
+      }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        'No artifact bundle found at ./.output/manifest.json. Run "pnpm run demo:compare" before "pnpm run demo:report".',
+      ),
+    });
+  }, 20_000);
+
   it("writes a local LLM evaluation report through evaluate:ollama", async () => {
     const cwd = process.cwd();
     const outputDir = resolve(cwd, ".output");
@@ -609,6 +670,14 @@ function fakeOllamaResponse(prompt: string) {
   }
 
   throw new Error(`Unexpected Ollama prompt: ${prompt}`);
+}
+
+function extractVisibleText(html: string): string {
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function closeServer(server: Server) {

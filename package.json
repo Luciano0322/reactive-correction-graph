@@ -8,8 +8,10 @@
     "demo:compare": "tsx src/cli/runComparison.ts",
     "demo:graph": "tsx src/cli/runDemo.ts --mode graph",
     "demo:ollama": "tsx src/cli/runDemo.ts --provider ollama",
+    "demo:report": "tsx src/cli/runReport.ts",
     "evaluate:ollama": "tsx src/cli/runEvaluation.ts",
     "test": "vitest run",
+    "test:browser": "playwright test",
     "typecheck": "tsc --noEmit",
     "verify:lockfile": "pnpm install --frozen-lockfile --lockfile-only"
   },
@@ -20,6 +22,7 @@
     "@signal-kernel/core": "0.1.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",
     "typescript": "^5.9.3",

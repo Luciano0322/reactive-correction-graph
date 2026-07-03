@@ -4,6 +4,13 @@ import type {
   RecomputeSavingsReport,
 } from "../comparison/recomputeSavingsReport.js";
 import type { CorrectionComparisonReport } from "../comparison/runCorrectionComparison.js";
+import type {
+  ReliabilityEvidenceStatus,
+  StructuralReliabilityHardGates,
+  StructuralReliabilityScorecard,
+  StructuralReliabilityVerdict,
+} from "../evaluation/structuralReliabilityScorecard.js";
+import type { ReceiveExecutionSummaryReport } from "../trace/projectReceiveExecutionSummary.js";
 
 export type EvidenceReportOperationViewModel = {
   key: RecomputeSavingsOperationName;
@@ -18,6 +25,13 @@ export type EvidenceReportScenarioViewModel = {
   label: string;
   comparisonStatus: "comparable" | "incomparable";
   outputsMatch: boolean;
+  execution: {
+    receiveEpoch: number;
+    recomputed: string[];
+    reused: string[];
+    superseded: string[];
+    emitted: string[];
+  };
   operations: EvidenceReportOperationViewModel[];
 };
 
@@ -29,6 +43,18 @@ export type EvidenceReportViewModel = {
     command: "demo:compare";
     provider: "deterministic-mock";
   };
+  reliability: {
+    structuralVerdict: StructuralReliabilityVerdict;
+    structuralScore: number | null;
+    providerCompatibility: "evaluated" | "not-evaluated";
+    subjectiveCorrectionQuality: "not-evaluated";
+    hardGates: Array<{
+      key: keyof StructuralReliabilityHardGates;
+      label: string;
+      status: ReliabilityEvidenceStatus;
+    }>;
+  };
+  evidenceLimits: string[];
   scenarios: EvidenceReportScenarioViewModel[];
 };
 
@@ -43,6 +69,23 @@ const OPERATION_LABELS = {
   rewriteDraft: "Rewrite draft",
 } as const;
 
+const WORK_LABELS: Record<string, string> = {
+  ...OPERATION_LABELS,
+  finalResult: "Final result",
+};
+
+const HARD_GATE_LABELS: Record<keyof StructuralReliabilityHardGates, string> = {
+  staleResultProtection: "Stale-result protection",
+  finalResultIntegrity: "Final-result integrity",
+  sessionIsolation: "Session isolation",
+};
+
+const EVIDENCE_LIMITS = [
+  "Execution counts cover fixed deterministic scenarios only.",
+  "Matching outputs do not prove factual correctness, writing quality, or usefulness.",
+  "This report is not a latency, token, cost, or general performance benchmark.",
+];
+
 export function createEvidenceReportViewModel(
   bundle: LoadedArtifactBundle,
 ): EvidenceReportViewModel {
@@ -56,6 +99,16 @@ export function createEvidenceReportViewModel(
     "savings",
     "recompute-savings",
   );
+  const executionSummary = artifactContent<ReceiveExecutionSummaryReport>(
+    bundle,
+    "executionSummary",
+    "receive-execution-summaries",
+  );
+  const scorecard = optionalArtifactContent<StructuralReliabilityScorecard>(
+    bundle,
+    "scorecard",
+    "structural-reliability-scorecard",
+  );
 
   return {
     title: "Reactive Correction Evidence Report",
@@ -65,7 +118,9 @@ export function createEvidenceReportViewModel(
       command: "demo:compare",
       provider: "deterministic-mock",
     },
-    scenarios: savings.scenarios.map((scenario) => {
+    reliability: reliabilityViewModel(scorecard),
+    evidenceLimits: [...EVIDENCE_LIMITS],
+    scenarios: savings.scenarios.map((scenario, index) => {
       const comparisonScenario = comparison.scenarios.find(
         (candidate) => candidate.scenario === scenario.scenario,
       );
@@ -74,12 +129,25 @@ export function createEvidenceReportViewModel(
           `Comparison artifact is missing scenario: ${scenario.scenario}`,
         );
       }
+      const execution = executionSummary.summaries[index];
+      if (!execution) {
+        throw new Error(
+          `Execution summary is missing scenario: ${scenario.scenario}`,
+        );
+      }
 
       return {
         key: scenario.scenario,
         label: SCENARIO_LABELS[scenario.scenario],
         comparisonStatus: scenario.comparisonStatus,
         outputsMatch: comparisonScenario.finalResultsMatch,
+        execution: {
+          receiveEpoch: execution.receiveEpoch,
+          recomputed: workLabels(execution.recomputed),
+          reused: workLabels(execution.reused),
+          superseded: workLabels(execution.superseded),
+          emitted: workLabels(execution.emitted),
+        },
         operations: scenario.operations.map((operation) => ({
           key: operation.operation,
           label: OPERATION_LABELS[operation.operation],
@@ -94,7 +162,7 @@ export function createEvidenceReportViewModel(
 
 function artifactContent<T>(
   bundle: LoadedArtifactBundle,
-  name: "comparison" | "savings",
+  name: "comparison" | "savings" | "executionSummary",
   schemaName: string,
 ): T {
   const artifact = bundle.artifacts[name];
@@ -108,4 +176,65 @@ function artifactContent<T>(
   }
 
   return artifact.content as T;
+}
+
+function workLabels(labels: string[]): string[] {
+  return labels.map((label) => WORK_LABELS[label] ?? label);
+}
+
+function optionalArtifactContent<T>(
+  bundle: LoadedArtifactBundle,
+  name: "scorecard",
+  schemaName: string,
+): T | null {
+  const artifact = bundle.artifacts[name];
+  if (!artifact) return null;
+
+  if (
+    artifact.mediaType !== "application/json" ||
+    artifact.schema?.name !== schemaName ||
+    artifact.schema.version !== 1
+  ) {
+    throw new Error(`Artifact bundle contains incompatible ${name} data`);
+  }
+
+  return artifact.content as T;
+}
+
+function reliabilityViewModel(
+  scorecard: StructuralReliabilityScorecard | null,
+): EvidenceReportViewModel["reliability"] {
+  if (scorecard) {
+    return {
+      structuralVerdict: scorecard.structuralReliability.verdict,
+      structuralScore: scorecard.structuralReliability.score,
+      providerCompatibility: scorecard.providerCompatibility.status,
+      subjectiveCorrectionQuality: scorecard.subjectiveCorrectionQuality,
+      hardGates: hardGateViewModels(
+        scorecard.structuralReliability.hardGates,
+      ),
+    };
+  }
+
+  return {
+    structuralVerdict: "insufficient-evidence",
+    structuralScore: null,
+    providerCompatibility: "not-evaluated",
+    subjectiveCorrectionQuality: "not-evaluated",
+    hardGates: hardGateViewModels({
+      staleResultProtection: "not-evaluated",
+      finalResultIntegrity: "not-evaluated",
+      sessionIsolation: "not-evaluated",
+    }),
+  };
+}
+
+function hardGateViewModels(hardGates: StructuralReliabilityHardGates) {
+  return (Object.keys(HARD_GATE_LABELS) as Array<keyof typeof HARD_GATE_LABELS>).map(
+    (key) => ({
+      key,
+      label: HARD_GATE_LABELS[key],
+      status: hardGates[key],
+    }),
+  );
 }

@@ -82,9 +82,12 @@ From a fresh clone, run:
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
 pnpm typecheck
 pnpm test
+pnpm run test:browser
 pnpm run demo:compare
+pnpm run demo:report
 ```
 
 This path uses deterministic mock model functions. It does not require Ollama,
@@ -107,19 +110,24 @@ pnpm run verify:lockfile
 - `.output/execution-summary.json`
 - `.output/manifest.json`
 
+`demo:report` loads that versioned bundle without starting a runtime or server,
+then writes `.output/report.html` and registers it in the manifest.
+
 Inspect them in this order:
 
-1. `manifest.json` identifies this run and the schemas of every available
+1. `report.html` presents the comparison, receive-level work, reliability
+   boundary, and evidence limits in one static document.
+2. `manifest.json` identifies this run and the schemas of every available
    artifact.
-2. `savings.json` shows per-update avoided calls, reused receives, and
+3. `savings.json` shows per-update avoided calls, reused receives, and
    superseded calls.
-3. `execution-summary.json` shows recomputed, reused, superseded, and emitted
+4. `execution-summary.json` shows recomputed, reused, superseded, and emitted
    work for each update.
-4. `comparison.json` shows cumulative eager and reactive provider call counts
+5. `comparison.json` shows cumulative eager and reactive provider call counts
    for the style-only and claim-changing transitions.
-5. `result.md` shows the representative revised draft and correction summary.
-6. `state.json` shows the final persistent-session state and its runtime trace.
-7. `trace.json` isolates that runtime lifecycle for easier inspection.
+6. `result.md` shows the representative revised draft and correction summary.
+7. `state.json` shows the final persistent-session state and its runtime trace.
+8. `trace.json` isolates that runtime lifecycle for easier inspection.
 
 ## Comparison Evidence
 

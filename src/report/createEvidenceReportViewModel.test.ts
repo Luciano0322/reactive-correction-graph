@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createArtifactBundleManifest } from "../artifacts/artifactBundleManifest.js";
 import type { LoadedArtifactBundle } from "../artifacts/loadArtifactBundle.js";
+import {
+  createStructuralReliabilityScorecard,
+  type StructuralReliabilityScorecard,
+} from "../evaluation/structuralReliabilityScorecard.js";
 import { createEvidenceReportViewModel } from "./createEvidenceReportViewModel.js";
 
 describe("createEvidenceReportViewModel", () => {
@@ -15,12 +19,47 @@ describe("createEvidenceReportViewModel", () => {
         command: "demo:compare",
         provider: "deterministic-mock",
       },
+      reliability: {
+        structuralVerdict: "insufficient-evidence",
+        structuralScore: null,
+        providerCompatibility: "not-evaluated",
+        subjectiveCorrectionQuality: "not-evaluated",
+        hardGates: [
+          {
+            key: "staleResultProtection",
+            label: "Stale-result protection",
+            status: "not-evaluated",
+          },
+          {
+            key: "finalResultIntegrity",
+            label: "Final-result integrity",
+            status: "not-evaluated",
+          },
+          {
+            key: "sessionIsolation",
+            label: "Session isolation",
+            status: "not-evaluated",
+          },
+        ],
+      },
+      evidenceLimits: [
+        "Execution counts cover fixed deterministic scenarios only.",
+        "Matching outputs do not prove factual correctness, writing quality, or usefulness.",
+        "This report is not a latency, token, cost, or general performance benchmark.",
+      ],
       scenarios: [
         {
           key: "style-only",
           label: "Style-only update",
           comparisonStatus: "comparable",
           outputsMatch: true,
+          execution: {
+            receiveEpoch: 2,
+            recomputed: ["Style review", "Rewrite draft"],
+            reused: ["Fact check"],
+            superseded: [],
+            emitted: ["Final result"],
+          },
           operations: [
             {
               key: "factCheck",
@@ -34,9 +73,53 @@ describe("createEvidenceReportViewModel", () => {
       ],
     });
   });
+
+  it("uses compatible scorecard evidence when the bundle provides it", () => {
+    const scorecard = createStructuralReliabilityScorecard({
+      policyVersion: 1,
+      runtimeSettlement: { settledRuns: 4, rejectedRuns: 0 },
+      providerCompatibility: { settledTrials: 3, rejectedTrials: 1 },
+      claimCoverage: { coveredClaims: 4, totalClaims: 4 },
+      unknownIdContainment: { containedUnknownIds: 2, totalUnknownIds: 2 },
+      contractEvidence: {
+        staleResultProtection: "passed",
+        finalResultIntegrity: "passed",
+        sessionIsolation: "passed",
+      },
+      executionEfficiency: { savingsReportSchemaVersion: 1 },
+    });
+
+    expect(
+      createEvidenceReportViewModel(comparisonBundle(scorecard)).reliability,
+    ).toEqual({
+      structuralVerdict: "pass",
+      structuralScore: 100,
+      providerCompatibility: "evaluated",
+      subjectiveCorrectionQuality: "not-evaluated",
+      hardGates: [
+        {
+          key: "staleResultProtection",
+          label: "Stale-result protection",
+          status: "passed",
+        },
+        {
+          key: "finalResultIntegrity",
+          label: "Final-result integrity",
+          status: "passed",
+        },
+        {
+          key: "sessionIsolation",
+          label: "Session isolation",
+          status: "passed",
+        },
+      ],
+    });
+  });
 });
 
-function comparisonBundle(): LoadedArtifactBundle {
+function comparisonBundle(
+  scorecard?: StructuralReliabilityScorecard,
+): LoadedArtifactBundle {
   const manifest = createArtifactBundleManifest(
     {
       command: "demo:compare",
@@ -58,6 +141,11 @@ function comparisonBundle(): LoadedArtifactBundle {
           mediaType: "application/json",
           schema: { name: "trace-events", version: 1 },
         },
+        executionSummary: {
+          path: "execution-summary.json",
+          mediaType: "application/json",
+          schema: { name: "receive-execution-summaries", version: 1 },
+        },
         comparison: {
           path: "comparison.json",
           mediaType: "application/json",
@@ -68,6 +156,18 @@ function comparisonBundle(): LoadedArtifactBundle {
           mediaType: "application/json",
           schema: { name: "recompute-savings", version: 1 },
         },
+        ...(scorecard
+          ? {
+              scorecard: {
+                path: "scorecard.json",
+                mediaType: "application/json" as const,
+                schema: {
+                  name: "structural-reliability-scorecard",
+                  version: 1,
+                },
+              },
+            }
+          : {}),
       },
     },
     {
@@ -90,6 +190,21 @@ function comparisonBundle(): LoadedArtifactBundle {
       trace: {
         ...manifest.artifacts.trace!,
         content: [],
+      },
+      executionSummary: {
+        ...manifest.artifacts.executionSummary!,
+        content: {
+          schemaVersion: 1,
+          summaries: [
+            {
+              receiveEpoch: 2,
+              recomputed: ["styleReview", "rewriteDraft"],
+              reused: ["factCheck"],
+              superseded: [],
+              emitted: ["finalResult"],
+            },
+          ],
+        },
       },
       comparison: {
         ...manifest.artifacts.comparison!,
@@ -139,6 +254,14 @@ function comparisonBundle(): LoadedArtifactBundle {
           ],
         },
       },
+      ...(scorecard
+        ? {
+            scorecard: {
+              ...manifest.artifacts.scorecard!,
+              content: scorecard,
+            },
+          }
+        : {}),
     },
   };
 }

@@ -209,6 +209,15 @@ pnpm run demo:graph
 Both commands use the deterministic mock provider by default and write
 `result.md`, `state.json`, `trace.json`, and `manifest.json` under `.output`.
 
+The interactive mock session runs locally without an API key:
+
+```bash
+pnpm run demo:web
+```
+
+Open `http://127.0.0.1:4173` to submit a draft through the persistent graph
+session API.
+
 Optional Ollama commands are manual integration paths:
 
 ```bash

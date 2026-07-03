@@ -9,6 +9,7 @@
     "demo:graph": "tsx src/cli/runDemo.ts --mode graph",
     "demo:ollama": "tsx src/cli/runDemo.ts --provider ollama",
     "demo:report": "tsx src/cli/runReport.ts",
+    "demo:web": "tsx src/cli/runWebDemo.ts",
     "evaluate:ollama": "tsx src/cli/runEvaluation.ts",
     "test": "vitest run",
     "test:browser": "playwright test",

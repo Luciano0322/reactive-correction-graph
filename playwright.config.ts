@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
-  testDir: "./src/report",
+  testDir: "./src",
   testMatch: "**/*.browser.pw.ts",
   fullyParallel: false,
   workers: 1,

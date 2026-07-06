@@ -26,9 +26,15 @@ export type CorrectionComparisonReport = {
   scenarios: CorrectionComparisonScenario[];
 };
 
+export type CorrectionComparisonBaseline = {
+  eager: ComparisonExecution;
+  reactive: ComparisonExecution;
+};
+
 export type CorrectionComparisonRun = {
   report: CorrectionComparisonReport;
   state: CorrectionGraphState;
+  baseline: CorrectionComparisonBaseline;
 };
 
 const INITIAL_DRAFT = "Signal-kernel coordinates async correction branches.";
@@ -46,8 +52,15 @@ export async function runCorrectionComparisonWithArtifacts(): Promise<Correction
   });
 
   const initialInput: CorrectionRuntimeInput = { draft: INITIAL_DRAFT };
-  await eagerGraph.invoke(initialInput);
-  await reactiveSession.invoke(initialInput);
+  const eagerInitialState = await eagerGraph.invoke(initialInput);
+  const reactiveInitialState = await reactiveSession.invoke(initialInput);
+  const baseline: CorrectionComparisonBaseline = {
+    eager: execution(eagerModel.counts(), eagerInitialState.finalResult),
+    reactive: execution(
+      reactiveModel.counts(),
+      reactiveInitialState.finalResult,
+    ),
+  };
 
   const styleOnlyInput: CorrectionRuntimeInput = {
     draft: INITIAL_DRAFT,
@@ -71,6 +84,7 @@ export async function runCorrectionComparisonWithArtifacts(): Promise<Correction
   const reactiveClaimState = await reactiveSession.invoke(claimChangingInput);
 
   return {
+    baseline,
     report: {
       provider: "deterministic-mock",
       scenarios: [

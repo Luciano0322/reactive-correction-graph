@@ -1,5 +1,9 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import {
+  createArtifactBundleManifest,
+  serializeArtifactBundleManifest,
+} from "../artifacts/artifactBundleManifest.js";
 import { createCorrectionGraph } from "../graph/createCorrectionGraph.js";
 import type {
   CorrectionRuntimeInput,
@@ -80,6 +84,30 @@ async function main() {
     throw new Error("Demo settled without a final result");
   }
 
+  const manifest = createArtifactBundleManifest({
+    command: mode === "graph" ? "demo:graph" : "demo",
+    mode: mode === "graph" ? "graph" : "runtime",
+    provider:
+      selectedProvider === "ollama" ? "ollama" : "deterministic-mock",
+    artifacts: {
+      result: {
+        path: "result.md",
+        mediaType: "text/markdown",
+        schema: null,
+      },
+      state: {
+        path: "state.json",
+        mediaType: "application/json",
+        schema: { name: "correction-state", version: 1 },
+      },
+      trace: {
+        path: "trace.json",
+        mediaType: "application/json",
+        schema: { name: "trace-events", version: 1 },
+      },
+    },
+  });
+
   await mkdir(outputDir, { recursive: true });
   await writeFile(
     resolve(outputDir, "result.md"),
@@ -88,6 +116,11 @@ async function main() {
   );
   await writeFile(resolve(outputDir, "state.json"), JSON.stringify(state, null, 2), "utf8");
   await writeFile(resolve(outputDir, "trace.json"), JSON.stringify(trace, null, 2), "utf8");
+  await writeFile(
+    resolve(outputDir, "manifest.json"),
+    serializeArtifactBundleManifest(manifest),
+    "utf8",
+  );
 
   console.log("Running Reactive Correction Graph...");
   console.log("");
@@ -95,6 +128,7 @@ async function main() {
   console.log("- ./.output/result.md");
   console.log("- ./.output/trace.json");
   console.log("- ./.output/state.json");
+  console.log("- ./.output/manifest.json");
 }
 
 function parseDemoInput(markdown: string): CorrectionRuntimeInput {

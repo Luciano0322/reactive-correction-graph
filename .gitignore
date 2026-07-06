@@ -13,6 +13,9 @@ dist-ssr
 .next
 out
 .output
+.playwright-output
+playwright-report
+test-results
 *.tsbuildinfo
 *.local
 

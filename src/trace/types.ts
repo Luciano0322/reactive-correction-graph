@@ -5,7 +5,8 @@ export type TraceScope =
   | "signal"
   | "computed"
   | "resource"
-  | "effect";
+  | "effect"
+  | "verification";
 
 export type TraceEventType =
   | "started"

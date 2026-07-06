@@ -82,9 +82,12 @@ From a fresh clone, run:
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
 pnpm typecheck
 pnpm test
+pnpm run test:browser
 pnpm run demo:compare
+pnpm run demo:report
 ```
 
 This path uses deterministic mock model functions. It does not require Ollama,
@@ -103,14 +106,28 @@ pnpm run verify:lockfile
 - `.output/state.json`
 - `.output/trace.json`
 - `.output/comparison.json`
+- `.output/savings.json`
+- `.output/execution-summary.json`
+- `.output/manifest.json`
+
+`demo:report` loads that versioned bundle without starting a runtime or server,
+then writes `.output/report.html` and registers it in the manifest.
 
 Inspect them in this order:
 
-1. `comparison.json` shows eager and reactive provider call counts for the
-   style-only and claim-changing transitions.
-2. `result.md` shows the representative revised draft and correction summary.
-3. `state.json` shows the final persistent-session state and its runtime trace.
-4. `trace.json` isolates that runtime lifecycle for easier inspection.
+1. `report.html` presents the comparison, receive-level work, reliability
+   boundary, and evidence limits in one static document.
+2. `manifest.json` identifies this run and the schemas of every available
+   artifact.
+3. `savings.json` shows per-update avoided calls, reused receives, and
+   superseded calls.
+4. `execution-summary.json` shows recomputed, reused, superseded, and emitted
+   work for each update.
+5. `comparison.json` shows cumulative eager and reactive provider call counts
+   for the style-only and claim-changing transitions.
+6. `result.md` shows the representative revised draft and correction summary.
+7. `state.json` shows the final persistent-session state and its runtime trace.
+8. `trace.json` isolates that runtime lifecycle for easier inspection.
 
 ## Comparison Evidence
 
@@ -133,6 +150,26 @@ deterministic transitions, the evidence shows:
 - Rewrite work runs once per logical input in both execution modes.
 - Selective invalidation preserves the same deterministic final result as the
   fresh eager baseline used by this demo.
+
+## Evidence Boundaries
+
+Execution counts answer how much work ran and whether a fixed transition reused
+or superseded work. They do not answer whether an LLM response is factually
+correct, well written, or useful.
+
+| Evidence | What it supports | What it does not prove |
+| --- | --- | --- |
+| `avoidedCalls`, `reusedReceives`, `supersededCalls` | Execution efficiency for the fixed comparison | Factual accuracy or correction quality |
+| Structural reliability score and hard gates | Runtime settlement, coverage, stale-result safety, and session isolation | Provider portability or semantic correctness |
+| Provider compatibility rate | How often one provider/model satisfies the runtime contract | Accuracy of accepted answers |
+| Repeated verification attempts | Amount of deliberate verification work | Independent corroboration unless verifier and evidence sources differ |
+| `subjectiveCorrectionQuality` | Reserved boundary for a future evaluator | Nothing while its value is `not-evaluated` |
+
+Intentional verification and accidental recomputation are different counters.
+Repeating the same fact check may be useful, but repetition alone does not add
+confidence. A future corroboration benchmark must record verifier identity,
+evidence sources, agreement, and disagreement separately from reactive
+recomputation.
 
 ## Limitations
 
@@ -170,13 +207,23 @@ pnpm run demo:graph
 ```
 
 Both commands use the deterministic mock provider by default and write
-`result.md`, `state.json`, and `trace.json` under `.output`.
+`result.md`, `state.json`, `trace.json`, and `manifest.json` under `.output`.
+
+The interactive mock session runs locally without an API key:
+
+```bash
+pnpm run demo:web
+```
+
+Open `http://127.0.0.1:4173` to submit a draft through the persistent graph
+session API.
 
 Optional Ollama commands are manual integration paths:
 
 ```bash
 pnpm run demo:ollama ./src/examples/input.md
 pnpm run evaluate:ollama
+pnpm run evaluate:corroboration -- "claim to verify"
 ```
 
 Ollama setup, PowerShell syntax, POSIX syntax, trial configuration, and report

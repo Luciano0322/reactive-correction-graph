@@ -5,10 +5,64 @@ import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { loadArtifactBundle } from "../artifacts/loadArtifactBundle.js";
 
 const execAsync = promisify(exec);
 
 describe("demo CLI", () => {
+  it("writes an artifact bundle that can be loaded through its manifest", async () => {
+    const cwd = process.cwd();
+    const outputDir = resolve(cwd, ".output");
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    await rm(outputDir, { recursive: true, force: true });
+    await execAsync(`${pnpmCommand} demo ./src/examples/input.md`, {
+      cwd,
+      timeout: 10_000,
+    });
+
+    const bundle = await loadArtifactBundle(outputDir);
+
+    expect({
+      mode: bundle.manifest.run.mode,
+      artifactNames: Object.keys(bundle.artifacts),
+      result: bundle.artifacts.result,
+      state: bundle.artifacts.state,
+      trace: bundle.artifacts.trace,
+    }).toEqual({
+      mode: "runtime",
+      artifactNames: ["result", "state", "trace"],
+      result: {
+        path: "result.md",
+        mediaType: "text/markdown",
+        schema: null,
+        content: expect.stringContaining("## Revised Draft"),
+      },
+      state: {
+        path: "state.json",
+        mediaType: "application/json",
+        schema: { name: "correction-state", version: 1 },
+        content: expect.objectContaining({
+          finalResult: expect.objectContaining({
+            revisedDraft: expect.stringContaining("Mock correction notes"),
+          }),
+        }),
+      },
+      trace: {
+        path: "trace.json",
+        mediaType: "application/json",
+        schema: { name: "trace-events", version: 1 },
+        content: expect.arrayContaining([
+          expect.objectContaining({
+            scope: "effect",
+            type: "emitted",
+            label: "finalResult",
+          }),
+        ]),
+      },
+    });
+  }, 20_000);
+
   it("writes an explanatory correction narrative for the demo fixture", async () => {
     const cwd = process.cwd();
     const outputDir = resolve(cwd, ".output");
@@ -23,6 +77,10 @@ describe("demo CLI", () => {
     const resultMarkdown = await readFile(resolve(outputDir, "result.md"), "utf8");
     const traceJson = await readFile(resolve(outputDir, "trace.json"), "utf8");
     const stateJson = await readFile(resolve(outputDir, "state.json"), "utf8");
+    const manifestJson = await readFile(
+      resolve(outputDir, "manifest.json"),
+      "utf8",
+    );
 
     const trace = JSON.parse(traceJson) as Array<{
       scope?: string;
@@ -36,6 +94,7 @@ describe("demo CLI", () => {
         unresolvedIssues?: string[];
       };
     };
+    const manifest = JSON.parse(manifestJson) as Record<string, unknown>;
 
     expect(resultMarkdown).toContain("## Revised Draft");
     expect(resultMarkdown).toContain("Mock correction notes");
@@ -62,6 +121,39 @@ describe("demo CLI", () => {
     expect(state.finalResult?.unresolvedIssues).toEqual([
       "This claim is tentative and should be verified.",
     ]);
+    expect(manifest).toEqual({
+      schemaVersion: 1,
+      run: {
+        id: expect.any(String),
+        generatedAt: expect.any(String),
+        command: "demo",
+        mode: "runtime",
+        provider: "deterministic-mock",
+      },
+      artifacts: {
+        result: {
+          path: "result.md",
+          mediaType: "text/markdown",
+          schema: null,
+        },
+        state: {
+          path: "state.json",
+          mediaType: "application/json",
+          schema: { name: "correction-state", version: 1 },
+        },
+        trace: {
+          path: "trace.json",
+          mediaType: "application/json",
+          schema: { name: "trace-events", version: 1 },
+        },
+        executionSummary: null,
+        comparison: null,
+        savings: null,
+        evaluation: null,
+        scorecard: null,
+        report: null,
+      },
+    });
   }, 20_000);
 
   it("isolates the fact-check signal in the fact-focused fixture", async () => {
@@ -203,6 +295,18 @@ describe("demo CLI", () => {
       resolve(outputDir, "comparison.json"),
       "utf8",
     );
+    const savingsJson = await readFile(
+      resolve(outputDir, "savings.json"),
+      "utf8",
+    );
+    const executionSummaryJson = await readFile(
+      resolve(outputDir, "execution-summary.json"),
+      "utf8",
+    );
+    const manifestJson = await readFile(
+      resolve(outputDir, "manifest.json"),
+      "utf8",
+    );
     const resultMarkdown = await readFile(resolve(outputDir, "result.md"), "utf8");
     const stateJson = await readFile(resolve(outputDir, "state.json"), "utf8");
     const traceJson = await readFile(resolve(outputDir, "trace.json"), "utf8");
@@ -213,6 +317,33 @@ describe("demo CLI", () => {
         eager?: { factCheckCalls?: number };
         reactive?: { factCheckCalls?: number };
       }>;
+    };
+    const savingsReport = JSON.parse(savingsJson) as {
+      schemaVersion?: number;
+      scenarios?: Array<{
+        scenario?: string;
+        operations?: Array<{
+          operation?: string;
+          avoidedCalls?: number | null;
+          reusedReceives?: number;
+          supersededCalls?: number;
+        }>;
+      }>;
+    };
+    const executionSummaryReport = JSON.parse(executionSummaryJson) as {
+      schemaVersion?: number;
+      summaries?: Array<{
+        receiveEpoch?: number;
+        recomputed?: string[];
+        reused?: string[];
+        superseded?: string[];
+        emitted?: string[];
+      }>;
+    };
+    const manifest = JSON.parse(manifestJson) as {
+      schemaVersion?: number;
+      run?: Record<string, unknown>;
+      artifacts?: Record<string, unknown>;
     };
     const state = JSON.parse(stateJson) as {
       finalResult?: { revisedDraft?: string };
@@ -225,6 +356,19 @@ describe("demo CLI", () => {
     const claimChanging = report.scenarios?.find(
       (scenario) => scenario.scenario === "claim-changing",
     );
+    const styleOnlySavings = savingsReport.scenarios?.find(
+      (scenario) => scenario.scenario === "style-only",
+    );
+    const claimChangingSavings = savingsReport.scenarios?.find(
+      (scenario) => scenario.scenario === "claim-changing",
+    );
+    const styleOnlyFactCheckSavings = styleOnlySavings?.operations?.find(
+      (operation) => operation.operation === "factCheck",
+    );
+    const claimChangingFactCheckSavings =
+      claimChangingSavings?.operations?.find(
+        (operation) => operation.operation === "factCheck",
+      );
 
     expect({
       provider: report.provider,
@@ -236,6 +380,11 @@ describe("demo CLI", () => {
         eager: claimChanging?.eager?.factCheckCalls,
         reactive: claimChanging?.reactive?.factCheckCalls,
       },
+      savingsSchemaVersion: savingsReport.schemaVersion,
+      styleOnlyFactCheckSavings,
+      claimChangingFactCheckSavings,
+      executionSummaryReport,
+      manifest,
       resultMarkdown,
       finalResultProduced: Boolean(state.finalResult?.revisedDraft),
       traceMatchesState: trace === undefined
@@ -252,15 +401,153 @@ describe("demo CLI", () => {
       provider: "deterministic-mock",
       styleOnlyFactChecks: { eager: 2, reactive: 1 },
       claimChangingFactChecks: { eager: 3, reactive: 2 },
+      savingsSchemaVersion: 1,
+      styleOnlyFactCheckSavings: expect.objectContaining({
+        operation: "factCheck",
+        avoidedCalls: 1,
+        reusedReceives: 1,
+        supersededCalls: 0,
+      }),
+      claimChangingFactCheckSavings: expect.objectContaining({
+        operation: "factCheck",
+        avoidedCalls: 0,
+        reusedReceives: 0,
+        supersededCalls: 0,
+      }),
+      executionSummaryReport: {
+        schemaVersion: 1,
+        summaries: [
+          {
+            receiveEpoch: 2,
+            recomputed: ["styleReview", "rewriteDraft"],
+            reused: ["factCheck"],
+            superseded: [],
+            emitted: ["finalResult"],
+          },
+          {
+            receiveEpoch: 3,
+            recomputed: ["factCheck", "styleReview", "rewriteDraft"],
+            reused: [],
+            superseded: [],
+            emitted: ["finalResult"],
+          },
+        ],
+      },
+      manifest: {
+        schemaVersion: 1,
+        run: {
+          id: expect.any(String),
+          generatedAt: expect.any(String),
+          command: "demo:compare",
+          mode: "comparison",
+          provider: "deterministic-mock",
+        },
+        artifacts: {
+          result: {
+            path: "result.md",
+            mediaType: "text/markdown",
+            schema: null,
+          },
+          state: {
+            path: "state.json",
+            mediaType: "application/json",
+            schema: { name: "correction-state", version: 1 },
+          },
+          trace: {
+            path: "trace.json",
+            mediaType: "application/json",
+            schema: { name: "trace-events", version: 1 },
+          },
+          executionSummary: {
+            path: "execution-summary.json",
+            mediaType: "application/json",
+            schema: { name: "receive-execution-summaries", version: 1 },
+          },
+          comparison: {
+            path: "comparison.json",
+            mediaType: "application/json",
+            schema: { name: "correction-comparison", version: 1 },
+          },
+          savings: {
+            path: "savings.json",
+            mediaType: "application/json",
+            schema: { name: "recompute-savings", version: 1 },
+          },
+          evaluation: null,
+          scorecard: null,
+          report: null,
+        },
+      },
       resultMarkdown: expect.stringContaining("## Revised Draft"),
       finalResultProduced: true,
       traceMatchesState: true,
       finalResultEmitted: true,
       stdout: expect.stringMatching(
-        /Observed provider call counts[\s\S]*not a general performance benchmark[\s\S]*result\.md[\s\S]*state\.json[\s\S]*trace\.json[\s\S]*comparison\.json/,
+        /Recompute savings by update[\s\S]*style-only[\s\S]*factCheck avoided=1 reused=1 superseded=0[\s\S]*claim-changing[\s\S]*factCheck avoided=0 reused=0 superseded=0[\s\S]*not a general performance benchmark[\s\S]*savings\.json[\s\S]*execution-summary\.json[\s\S]*manifest\.json/,
       ),
     });
   }, 30_000);
+
+  it("writes a loadable static evidence report from a comparison bundle", async () => {
+    const cwd = process.cwd();
+    const outputDir = resolve(cwd, ".output");
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    await rm(outputDir, { recursive: true, force: true });
+    await execAsync(`${pnpmCommand} run demo:compare`, {
+      cwd,
+      timeout: 20_000,
+    });
+    const { stdout } = await execAsync(`${pnpmCommand} run demo:report`, {
+      cwd,
+      timeout: 10_000,
+    });
+
+    const bundle = await loadArtifactBundle(outputDir);
+    const reportHtml = bundle.artifacts.report?.content;
+    const visibleText =
+      typeof reportHtml === "string" ? extractVisibleText(reportHtml) : "";
+
+    expect({
+      command: bundle.manifest.run.command,
+      mode: bundle.manifest.run.mode,
+      report: bundle.artifacts.report,
+      visibleText,
+      stdout,
+    }).toEqual({
+      command: "demo:report",
+      mode: "report",
+      report: {
+        path: "report.html",
+        mediaType: "text/html",
+        schema: null,
+        content: expect.stringContaining("<!doctype html>"),
+      },
+      visibleText: expect.stringMatching(
+        /Reactive Correction Evidence Report[\s\S]*Style-only update[\s\S]*Claim-changing update[\s\S]*Reliability[\s\S]*Not evaluated[\s\S]*Evidence limits/,
+      ),
+      stdout: expect.stringContaining("./.output/report.html"),
+    });
+  }, 30_000);
+
+  it("explains how to create a missing comparison bundle for the report", async () => {
+    const cwd = process.cwd();
+    const outputDir = resolve(cwd, ".output");
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    await rm(outputDir, { recursive: true, force: true });
+
+    await expect(
+      execAsync(`${pnpmCommand} run demo:report`, {
+        cwd,
+        timeout: 10_000,
+      }),
+    ).rejects.toMatchObject({
+      stderr: expect.stringContaining(
+        'No artifact bundle found at ./.output/manifest.json. Run "pnpm run demo:compare" before "pnpm run demo:report".',
+      ),
+    });
+  }, 20_000);
 
   it("writes a local LLM evaluation report through evaluate:ollama", async () => {
     const cwd = process.cwd();
@@ -383,6 +670,14 @@ function fakeOllamaResponse(prompt: string) {
   }
 
   throw new Error(`Unexpected Ollama prompt: ${prompt}`);
+}
+
+function extractVisibleText(html: string): string {
+  return html
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function closeServer(server: Server) {

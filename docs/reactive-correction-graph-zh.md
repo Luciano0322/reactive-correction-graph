@@ -760,6 +760,10 @@ Observed provider call counts:
 - style-only; factCheck eager=2 reactive=1; styleReview eager=2 reactive=2; rewriteDraft eager=2 reactive=2
 - claim-changing; factCheck eager=3 reactive=2; styleReview eager=3 reactive=3; rewriteDraft eager=3 reactive=3
 
+Recompute savings by update:
+- style-only; factCheck avoided=1 reused=1 superseded=0; styleReview avoided=0 reused=0 superseded=0; rewriteDraft avoided=0 reused=0 superseded=0
+- claim-changing; factCheck avoided=0 reused=0 superseded=0; styleReview avoided=0 reused=0 superseded=0; rewriteDraft avoided=0 reused=0 superseded=0
+
 These deterministic fixture counts are not a general performance benchmark.
 
 Output written to:
@@ -767,6 +771,9 @@ Output written to:
 - ./.output/state.json
 - ./.output/trace.json
 - ./.output/comparison.json
+- ./.output/savings.json
+- ./.output/execution-summary.json
+- ./.output/manifest.json
 ```
 
 這些數字是累積 call counts：
@@ -821,3 +828,277 @@ style-only 更新沒有讓 fact-check 失效；claim-changing 更新則確實重
 LangGraph 無法透過 caching、checkpointing 或其他 workflow 設計達成 reuse。
 目前能支持的結論只有：在這兩個固定 transition 中，signal-kernel runtime 的局部
 invalidation 會避免不必要的 fact-check，同時保留相同的 deterministic output。
+
+## Task 27-29：執行證據不等於答案正確
+
+Task 27 先把累積 trace 投影成 receive-scoped execution summary。每次 receive 都有
+穩定的 `receiveEpoch`，summary 會分開列出：
+
+```txt
+recomputed
+reused
+superseded
+emitted
+```
+
+這讓 style-only update 可以被描述成「重用 fact-check，只重算 style review 與 rewrite」，
+而 claim-changing update 則會明確重新執行 fact-check。尚未完成就被新 receive 取代的工作
+會進入 `superseded`，不會偽裝成成功重用。
+
+Task 28 再把兩種不同來源的 evidence 組合起來：
+
+- instrumented model 提供真實 provider call counts。
+- execution summary 提供 reused 與 superseded evidence。
+
+`avoidedCalls` 只在 fixture、model contract 與 update order 相同時，使用以下公式：
+
+```txt
+avoidedCalls = eagerCalls - reactiveCalls
+```
+
+而且必須計算單次 update 的 delta。`claim-changing` 的累積 fact-check counts 是 `3 vs 2`，
+但扣除上一個 style-only scenario 後，本次 update 是 `1 vs 1`，所以 avoided calls 是 `0`，
+不能把先前已省下的工作重複宣稱一次。
+
+Task 29 則建立 versioned structural reliability scorecard。初版權重是：
+
+| Dimension | Weight |
+| --- | ---: |
+| Runtime settlement rate | 30 |
+| Claim coverage | 25 |
+| Unknown-ID containment | 15 |
+| Stale-result protection | 20 |
+| Session isolation | 10 |
+
+另外有三個 hard gates：stale result overwrite、錯誤或缺失的 successful final result、
+以及跨 session state leak。任何 hard gate failed，都會讓 verdict 成為 `fail`，即使 weighted
+score 仍然很高。缺少必要 evidence 時，score 是 `null`，verdict 是
+`insufficient-evidence`，不會把沒有測到的項目當成通過。
+
+### 五種 evidence 要分開看
+
+| Evidence | 可以支持的結論 | 不能證明的事情 |
+| --- | --- | --- |
+| Avoided/reused/superseded counts | 固定 transition 下的執行效率 | 事實正確或文字品質 |
+| Structural reliability | Runtime settlement、coverage、stale safety、session isolation | Provider 可攜性或答案正確性 |
+| Provider compatibility | 某個 model/provider 遵守 runtime contract 的比例 | 被接受內容的準確度 |
+| 重複 verification attempts | 系統刻意做了多少驗證工作 | 驗證彼此獨立或結論為真 |
+| Subjective correction quality | 未來 evaluator 的預留邊界 | 值為 `not-evaluated` 時不能下任何品質結論 |
+
+這裡最容易混淆的是「多執行一次」。如果同一個 fact check 因失效傳播被意外重跑，
+它是 recomputation waste；如果系統刻意請另一個 verifier 使用不同 evidence source 交叉檢查，
+它才可能是 corroboration。即使如此，多次同意仍不是事實真值。未來 benchmark 必須另外記錄
+verifier identity、evidence source、agreement 與 disagreement，不能只把 call count 乘上權重。
+
+因此目前 scorecard 會把 execution efficiency、provider compatibility、structural reliability
+分開輸出，`subjectiveCorrectionQuality` 維持 `not-evaluated`。這個限制不是缺點，而是避免
+工具用看似精確的分數宣稱它其實沒有測量的事情。
+
+## Task 30：用 versioned artifact bundle 穩定對外邊界
+
+前面的 CLI 已經會輸出 result、state、trace、comparison、savings、evaluation 與 scorecard，
+但如果外部工具只看到一個資料夾，它無法知道哪些檔案屬於同一次 run、schema 是否相容，
+也無法區分「這次沒有產生」與「檔案遺失」。Task 30 因此加入 `.output/manifest.json`：
+
+```ts
+type ArtifactBundleManifest = {
+  schemaVersion: 1;
+  run: {
+    id: string;
+    generatedAt: string;
+    command: string;
+    mode: string;
+    provider: "deterministic-mock" | "ollama";
+  };
+  artifacts: {
+    result: ArtifactReference | null;
+    state: ArtifactReference | null;
+    trace: ArtifactReference | null;
+    executionSummary: ArtifactReference | null;
+    comparison: ArtifactReference | null;
+    savings: ArtifactReference | null;
+    evaluation: ArtifactReference | null;
+    scorecard: ArtifactReference | null;
+    report: ArtifactReference | null;
+  };
+};
+```
+
+每個 JSON artifact 都帶有 schema name 與 version；沒有產生的 optional artifact 明確寫成
+`null`。validator 會拒絕未知 bundle version、不相容 media type、缺少必要 artifact，
+以及可能離開 bundle directory 的路徑。clock 與 run ID 由測試注入，讓 manifest assertions
+保持 deterministic。
+
+這一層的重要性不只在於方便讀檔。它把 live runtime 與 serialized evidence 明確切開：
+signal graph、effect、AbortController 或 LangGraph runnable 都不能進入 artifact；外部 consumer
+只依賴可版本化的資料 contract。後續 report 與 Web 因此不需要 import runtime internals。
+
+## Task 31：從 artifact 產生靜態 evidence report
+
+Task 31 把 versioned bundle 投影成 report view model，再輸出 self-contained HTML：
+
+```bash
+pnpm run demo:report
+```
+
+產出的 `.output/report.html` 不需要 server、database、Ollama、LangSmith 或前端 framework。
+report 首先呈現 eager 與 reactive 的 operation counts，再依 receive 顯示：
+
+```txt
+recomputed
+reused
+superseded
+emitted
+```
+
+Reliability 區塊仍保留 structural verdict、hard gates、provider compatibility 與
+`subjectiveCorrectionQuality: not-evaluated`。也就是說，report 的工作是把 evidence 說清楚，
+不是把所有數字壓成一個看似客觀的總分。
+
+HTML renderer 使用 semantic headings、tables、lists 與 skip link。Playwright 會在 desktop
+與 mobile viewport 驗證內容可讀、鍵盤可以直接跳到主內容、文字不會溢出。因為 report
+只讀 manifest 與 artifacts，它也適合放在 CI artifact、GitHub Pages 或技術文章附件中。
+
+## Task 32：在 framework-agnostic session API 上建立 Web Demo
+
+靜態 report 能解釋一次已完成的 run，但無法讓開發者親自修改輸入，觀察第二次 receive
+到底重用了什麼。Task 32 因此加入 local interactive session：
+
+```txt
+Vanilla Web UI
+  -> Node HTTP session API
+  -> LangGraph session boundary
+  -> signal-kernel correction runtime
+```
+
+HTTP server 使用 Node `node:http`，不依賴 React、Vue、Next.js 或 database。API 提供：
+
+- `POST /api/sessions`：建立一個擁有 live runtime 的 session。
+- `POST /api/sessions/:id/invocations`：對同一 session 送入下一次 input。
+- `POST /api/sessions/:id/reset`：以 fresh runtime 重設 session。
+- `DELETE /api/sessions/:id`：釋放 session ownership。
+
+回應不是 raw graph state，而是 versioned session view model。Web UI 目前用原生 HTML、CSS、
+JavaScript 呈現 draft、result 與 execution activity。送出期間保留上一版 stable result，
+並顯示 pending work；settled 後再分欄顯示 recomputed、reused 與 superseded。Browser tests
+會連續送出 initial、style-only、claim-changing update，確認 receive epoch 依序增加；另外開啟
+兩個頁面，確認 session state 與 trace 不會交叉污染。
+
+### Web UI、LangGraph state 與 runtime state 不是同一層
+
+這裡需要特別記錄一個容易混淆的觀念：資料存在 LangGraph 或 runtime，不代表應該直接顯示
+在一般使用者介面。比較穩定的分層是：
+
+```mermaid
+flowchart TD
+  web["Web UI<br/>使用者可理解與操作的資料"]
+  api["Session API / View Model<br/>明確的公開投影"]
+  graph["LangGraph State<br/>跨節點、checkpoint、人工介入所需資料"]
+  runtime["signal-kernel Runtime<br/>局部衍生、可重算、高頻變動資料"]
+
+  web --> api
+  api --> graph
+  graph --> runtime
+  runtime --> graph
+  graph --> api
+```
+
+目前資料可以這樣判斷：
+
+| 資料 | 主要位置 | 一般 UI 建議 |
+| --- | --- | --- |
+| Draft | LangGraph state 與 runtime input | 顯示並允許編輯 |
+| User intent | LangGraph state 與 runtime signal | 視產品需要顯示，或收進進階設定 |
+| Claims | runtime computed；必要時投影到 graph state | 預設隱藏，Developer Inspector 可唯讀顯示 |
+| Fact-check result | runtime resource；摘要可進 graph state | 顯示結論與 unresolved issues，不必暴露所有內部狀態 |
+| Trace / snapshot | runtime 與 backend artifact | 放在 Developer Inspector 或下載 artifact |
+| Final result | LangGraph state 與 session view model | 顯示 |
+
+是否把 runtime data 提升到 LangGraph state，可以用四個問題判斷：後續 node 是否需要、
+checkpoint 恢復是否需要、是否需要人工審核、是否值得持久化而不是重新計算。如果答案都是否，
+資料留在 signal-kernel runtime 即可。
+
+以 claims 為例，它原本只是 draft 的衍生資料，留在 runtime 最自然；如果未來增加
+human-in-the-loop claim review，或另一個 LangGraph node 要使用 claims，它才需要提升成
+共享 graph state。Intent 也不一定要成為可見欄位：若由使用者明確指定就顯示；若由 agent
+從對話推斷，就留在後台，只在 developer mode 顯示。
+
+目前 Web Demo 顯示 `User intent` 是為了方便測試 reactive invalidation，不代表正式工具必須
+把 agent internals 全部暴露。更適合 developer tool 的做法是提供兩種視圖：一般模式只顯示
+輸入、結果與簡單摘要；Developer Inspector 再展開 claims、attempts、trace、reused 與
+recomputed。Trace 也應優先記錄 ID、狀態與數量，避免不必要地複製敏感原文。
+
+## Task 33：把 corroboration 與 recomputation 分成兩種證據
+
+前面的 comparison 證明「避免重算」有價值，但不能反過來推論「多執行幾次就更可靠」。
+Task 33 將兩個概念拆開：
+
+```txt
+reactive recomputation
+  = 因依賴失效而再次執行工作
+
+verification attempt
+  = 系統刻意要求 verifier 檢查 claim
+```
+
+Verifier contract 先記錄 configured identity：
+
+```ts
+type VerifierIdentity = {
+  verifierId: string;
+  provider: string;
+  model: string;
+};
+
+type VerificationAttemptPurpose = "primary" | "corroboration";
+```
+
+`verifierId` 不等於獨立來源。兩個不同 ID 如果使用相同 provider/model，會得到相同 model key，
+預設不能被描述成兩份獨立 corroboration。每個 attempt 另外保留 verdict、note 與
+`evidenceReferences`；沒有外部來源時，references 維持空陣列，不把模型回答冒充事實證據。
+
+`corroborateClaim()` 會保留三種 outcome：
+
+| Outcome | 意義 |
+| --- | --- |
+| `agreement` | 足夠數量的 model identities 回傳相同 conclusive verdict |
+| `disagreement` | conclusive verdict 不一致，所有 attempts 都保留 |
+| `insufficient-evidence` | verifier 主動回報不足、共享同一 model identity，或 quorum 未達標 |
+
+Quorum policy 也是 versioned contract：
+
+```ts
+type CorroborationQuorumPolicy = {
+  policyVersion: 1;
+  minimumIndependentModels: number;
+};
+```
+
+明確提供 policy 時，結果會記錄 required policy 與 observed model count。這裡的
+`independentModels` 只代表不同 provider/model identity，不代表訓練資料、推理偏誤或外部來源
+在統計上真正獨立，因此 agreement 仍不能被寫成 factual truth。
+
+Task 33e 再把 evidence 分別投影到三層：
+
+- Trace 使用獨立的 `verification` scope，記錄 verification attempts 與 corroboration outcome，
+  不混入 `resource/factCheck` 的 stale、pending、resolved 生命週期。
+- Scorecard 分開輸出 `verificationAttempts` 與 `recomputationCalls`，兩者都不會偷偷增加
+  structural reliability score。
+- Report view model 使用 verification 與 recomputation 兩個平行區塊，讓 UI 或文章不會把
+  「刻意多查一次」和「因失效而重跑一次」合併成同一個數字。
+
+最後加入 optional manual Ollama path：
+
+```powershell
+$env:OLLAMA_CORROBORATION_MODELS = "llama3.2:3b,qwen3:4b"
+$env:CORROBORATION_MINIMUM_MODELS = "2"
+pnpm run evaluate:corroboration -- "Signal-kernel tracks reactive dependencies."
+```
+
+命令會寫入 `.output/corroboration.json`，內容包含 versioned report、claim、attempts、quorum、
+outcome 與 verification trace。正常 test suite 仍使用 deterministic verifier doubles，不要求
+Ollama、API key 或網路連線；真實多模型路徑只在開發者明確執行命令時啟動。
+
+Task 33 的核心不是用多數決製造「真相分數」，而是讓系統誠實回答：做了幾次刻意驗證、
+由哪些 verifier 執行、是否真的使用不同 model identity、彼此同意或衝突，以及目前還缺少
+哪些外部 evidence。這個邊界能讓未來的 benchmark 繼續成長，而不會把執行次數誤包裝成可靠性。

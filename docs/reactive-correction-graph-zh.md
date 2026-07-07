@@ -1102,3 +1102,61 @@ Ollama、API key 或網路連線；真實多模型路徑只在開發者明確執
 Task 33 的核心不是用多數決製造「真相分數」，而是讓系統誠實回答：做了幾次刻意驗證、
 由哪些 verifier 執行、是否真的使用不同 model identity、彼此同意或衝突，以及目前還缺少
 哪些外部 evidence。這個邊界能讓未來的 benchmark 繼續成長，而不會把執行次數誤包裝成可靠性。
+
+## Task 34：Live runtime event stream
+
+Task 34 把前面已經存在的 runtime trace，推進成可以即時觀察的 local event stream。
+這一步不是新增另一套追蹤語意，而是把同一份 TraceEvent 在 runtime 還沒 settle 前先投影給
+developer tool 使用。
+
+目前 local web server 提供：
+
+```txt
+GET /api/sessions/:id/events
+```
+
+這個 endpoint 使用 Server-Sent Events。每筆 message 是 `LiveTraceEvent`：
+
+```ts
+type LiveTraceEvent = {
+  schemaVersion: 1;
+  sequence: number;
+  event: TraceEvent;
+};
+```
+
+`sequence` 是每個 session stream 內單調遞增的順序；`event` 則是 runtime 最後會進入
+`trace.json` 的同一份 TraceEvent payload。也就是說，live stream 可以讓 UI 在 invocation
+response 回來前顯示 `styleReview pending`、`rewriteDraft pending` 這類狀態，但它不是新的 truth source。
+
+這裡的邊界可以這樣理解：
+
+| Layer | 用途 | 是否 durable |
+| --- | --- | --- |
+| Live SSE events | 執行中的 developer feedback | 否，session 關閉後即消失 |
+| `trace.json` | 已 settle 的 runtime lifecycle artifact | 是，可被 report 與測試讀取 |
+| `manifest.json` / artifact bundle | 版本化列出同一次 run 的可相容輸出檔 | 是，給離線 consumer 使用 |
+
+Task 34a 先定義 `LiveTraceEvent` contract，並讓 graph session 可以 `subscribe()`。
+Task 34b 確認 live subscriber 即使修改收到的 payload，也不會污染 settled `runtime.trace()`。
+Task 34c 驗證 unsubscribe cleanup 與 session isolation：兩個 session 的 live stream 各自從
+sequence 1 開始，不會互相串流污染。Task 34d 把 session subscription 接成 local SSE endpoint。
+Task 34e 再讓 vanilla Web UI 使用 EventSource；第二次 style-only update 時，final result
+還沒回來前，畫面只會顯示真正 pending 的 `Style review`，不會把已 reuse 的 `Fact check`
+誤顯示成 pending。
+
+這個設計也延續 Task 30 的 artifact 邊界：live stream 不會進入 artifact bundle。
+`.output/manifest.json` 只記錄可序列化、可版本化的結果，例如 `result.md`、`state.json`、
+`trace.json`、`comparison.json`、`evaluation.json`、`scorecard.json` 或 `report.html`。
+runtime instance、signal graph、AbortController、EventSource connection 都不能進入 bundle。
+
+因此 Task 34 的定位是：
+
+```txt
+live events = runtime 執行中的觀察投影
+trace.json = runtime settle 後的生命週期證據
+artifact bundle = 離線工具、report、CI artifact 的版本化入口
+```
+
+三者描述的是同一條 runtime lifecycle，但生命週期與使用場景不同。這個分層讓 Web Inspector
+可以即時顯示正在跑的工作，同時保留 CLI artifact 的可重現性與離線可讀性。

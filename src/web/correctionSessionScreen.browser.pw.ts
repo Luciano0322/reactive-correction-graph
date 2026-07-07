@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, test } from "@playwright/test";
+import type { CorrectionRuntimeModel } from "../runtime/createCorrectionRuntime.js";
 import { createCorrectionSessionHttpServer } from "./createCorrectionSessionHttpServer.js";
 
 let server: Server;
@@ -108,6 +109,45 @@ test("shows pending and settled execution activity", async ({ page }) => {
   await expect(activity.getByRole("list", { name: "Pending work" })).toContainText(
     "None",
   );
+});
+
+test("shows live style-only pending work before the final result arrives", async ({
+  page,
+}) => {
+  const slowServer = createCorrectionSessionHttpServer({
+    runtime: {
+      model: createStyleOnlyDelayedCorrectionModel(1_500),
+      settleTimeoutMs: 5_000,
+    },
+  });
+  const slowBaseUrl = await listen(slowServer);
+
+  try {
+    await page.goto(slowBaseUrl);
+    const activity = page.getByRole("region", { name: "Execution activity" });
+    const pendingWork = activity.getByRole("list", { name: "Pending work" });
+    const draft = "Signal-kernel coordinates async correction branches.";
+
+    await page.getByLabel("Draft").fill(draft);
+    await page.getByRole("button", { name: "Run correction" }).click();
+    await expect(page.getByRole("status")).toHaveText("Correction settled");
+    await expect(activity).toContainText("Settled epoch 1");
+
+    await page.getByLabel("Style guide").fill("Use concise language.");
+    await page.getByRole("button", { name: "Run correction" }).click();
+
+    await expect(pendingWork).toContainText("Style review");
+    await expect(page.getByRole("status")).toHaveText("Running correction");
+    await expect(pendingWork).not.toContainText("Fact check");
+
+    await expect(page.getByRole("status")).toHaveText("Correction settled");
+    await expect(activity).toContainText("Settled epoch 2");
+    await expect(activity.getByRole("list", { name: "Reused work" })).toContainText(
+      "Fact check",
+    );
+  } finally {
+    await closeServer(slowServer);
+  }
 });
 
 test("keeps one session across sequential correction updates", async ({
@@ -219,4 +259,56 @@ async function closeServer(httpServer: Server): Promise<void> {
   });
   httpServer.closeAllConnections();
   await closed;
+}
+
+function createStyleOnlyDelayedCorrectionModel(
+  delayMs: number,
+): CorrectionRuntimeModel {
+  return {
+    async factCheckClaims(claims) {
+      return {
+        items: claims.map((claim) => ({
+          claimId: claim.id,
+          verdict: "supported",
+          note: "Delayed fact check completed.",
+        })),
+      };
+    },
+    async reviewStyle(input) {
+      if (input.styleGuide) {
+        await sleep(delayMs);
+      }
+
+      return {
+        tone: "clear",
+        suggestions: input.styleGuide
+          ? [`Apply style guide: ${input.styleGuide}`]
+          : [],
+      };
+    },
+    async rewriteDraft(input) {
+      if (
+        input.plan.actions.some((action) =>
+          action.startsWith("Apply style guide:"),
+        )
+      ) {
+        await sleep(delayMs);
+      }
+
+      return [
+        input.draft,
+        "",
+        "---",
+        "",
+        "Delayed rewrite",
+        ...input.plan.actions.map((action) => `- ${action}`),
+      ].join("\n");
+    },
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createTraceCollector } from "../trace/createTraceCollector.js";
+import type { LiveTraceEvent } from "../trace/liveTraceEvents.js";
 import {
   createCorrectionGraph,
   createCorrectionGraphSession,
@@ -122,6 +123,136 @@ describe("createCorrectionGraph", () => {
         "Respect user intent: Explain the incremental update.",
       ]),
     });
+  });
+
+  it("streams ordered live runtime events from a graph session", async () => {
+    const session = createCorrectionGraphSession();
+    const liveEvents: LiveTraceEvent[] = [];
+
+    const unsubscribe = session.subscribe((event) => {
+      liveEvents.push(event);
+    });
+    const state = await session.invoke({
+      draft: "Signal-kernel can maybe coordinate async correction branches.",
+    });
+    unsubscribe();
+
+    expect(liveEvents.map(({ sequence }) => sequence)).toEqual(
+      liveEvents.map((_, index) => index + 1),
+    );
+    expect(liveEvents.map(({ event }) => event)).toEqual(state.trace);
+    expect(liveEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          schemaVersion: 1,
+          event: expect.objectContaining({
+            scope: "runtime",
+            type: "started",
+            label: "receive",
+            metadata: expect.objectContaining({ receiveEpoch: 1 }),
+          }),
+        }),
+        expect.objectContaining({
+          schemaVersion: 1,
+          event: expect.objectContaining({
+            scope: "effect",
+            type: "emitted",
+            label: "finalResult",
+          }),
+        }),
+      ]),
+    );
+    expect(JSON.parse(JSON.stringify(liveEvents))).toEqual(liveEvents);
+  });
+
+  it("stops streaming live runtime events after unsubscribe", async () => {
+    const session = createCorrectionGraphSession();
+    const liveEvents: LiveTraceEvent[] = [];
+    const draft = "Signal-kernel coordinates async correction branches.";
+
+    const unsubscribe = session.subscribe((event) => {
+      liveEvents.push(event);
+    });
+    await session.invoke({ draft });
+    const liveEventCountBeforeUnsubscribe = liveEvents.length;
+
+    unsubscribe();
+    const secondState = await session.invoke({
+      draft,
+      styleGuide: "Use concise technical language.",
+    });
+
+    expect(liveEvents).toHaveLength(liveEventCountBeforeUnsubscribe);
+    expect(
+      liveEvents.some(
+        ({ event }) =>
+          event.scope === "runtime" &&
+          event.type === "started" &&
+          event.label === "receive" &&
+          event.metadata?.receiveEpoch === 2,
+      ),
+    ).toBe(false);
+    expect(
+      secondState.trace.some(
+        (event) =>
+          event.scope === "runtime" &&
+          event.type === "started" &&
+          event.label === "receive" &&
+          event.metadata?.receiveEpoch === 2,
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps live runtime event streams isolated between graph sessions", async () => {
+    const sessionA = createCorrectionGraphSession();
+    const sessionB = createCorrectionGraphSession();
+    const liveEventsA: LiveTraceEvent[] = [];
+    const liveEventsB: LiveTraceEvent[] = [];
+    const draftA = "Session A coordinates async correction branches.";
+    const draftB = "Session B owns an independent correction draft.";
+
+    const unsubscribeA = sessionA.subscribe((event) => {
+      liveEventsA.push(event);
+    });
+    const unsubscribeB = sessionB.subscribe((event) => {
+      liveEventsB.push(event);
+    });
+
+    await sessionA.invoke({ draft: draftA });
+    const stateB = await sessionB.invoke({ draft: draftB });
+    const secondStateA = await sessionA.invoke({
+      draft: draftA,
+      styleGuide: "Session A style only.",
+    });
+
+    unsubscribeA();
+    unsubscribeB();
+
+    const receiveEpochs = (events: LiveTraceEvent[]) =>
+      events
+        .map(({ event }) =>
+          event.scope === "runtime" &&
+          event.type === "started" &&
+          event.label === "receive"
+            ? event.metadata?.receiveEpoch
+            : undefined,
+        )
+        .filter((epoch): epoch is number => typeof epoch === "number");
+    const sequences = (events: LiveTraceEvent[]) =>
+      events.map(({ sequence }) => sequence);
+
+    expect(liveEventsA.map(({ event }) => event)).toEqual(secondStateA.trace);
+    expect(liveEventsB.map(({ event }) => event)).toEqual(stateB.trace);
+    expect(sequences(liveEventsA)).toEqual(
+      liveEventsA.map((_, index) => index + 1),
+    );
+    expect(sequences(liveEventsB)).toEqual(
+      liveEventsB.map((_, index) => index + 1),
+    );
+    expect(receiveEpochs(liveEventsA)).toEqual([1, 2]);
+    expect(receiveEpochs(liveEventsB)).toEqual([1]);
+    expect(stateB.finalResult?.revisedDraft).toContain(draftB);
+    expect(stateB.finalResult?.revisedDraft).not.toContain(draftA);
   });
 
   it("reruns style work without fact checking on a style-only session update", async () => {

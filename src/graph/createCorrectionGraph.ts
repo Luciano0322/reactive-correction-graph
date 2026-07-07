@@ -65,7 +65,9 @@ export function createCorrectionGraphSession(
   options: CorrectionRuntimeOptions = {},
 ) {
   const runtime = createCorrectionRuntime(options);
-  return createCorrectionGraph({ runtime });
+  return Object.assign(createCorrectionGraph({ runtime }), {
+    subscribe: runtime.subscribe,
+  });
 }
 
 function prepareInputNode(state: CorrectionGraphState): CorrectionGraphUpdate {

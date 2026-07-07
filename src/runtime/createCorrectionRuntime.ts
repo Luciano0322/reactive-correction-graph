@@ -183,6 +183,9 @@ export function createCorrectionRuntime(
     trace(): TraceEvent[] {
       return traceCollector.events();
     },
+    subscribe(listener) {
+      return traceCollector.subscribe(listener);
+    },
   };
 }
 

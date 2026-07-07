@@ -74,6 +74,18 @@ async function handleRequest(
     return;
   }
 
+  const eventsRoute = matchSessionRoute(pathname, "events");
+  if (request.method === "GET" && eventsRoute) {
+    const session = sessions.get(eventsRoute.sessionId);
+    if (!session) {
+      writeSessionNotFound(response, eventsRoute.sessionId);
+      return;
+    }
+
+    writeServerSentEvents(request, response, session);
+    return;
+  }
+
   const invocationRoute = matchSessionRoute(pathname, "invocations");
   if (request.method === "POST" && invocationRoute) {
     const session = sessions.get(invocationRoute.sessionId);
@@ -185,4 +197,30 @@ function writeJson(
     ...headers,
   });
   response.end(JSON.stringify(body));
+}
+
+function writeServerSentEvents(
+  request: IncomingMessage,
+  response: ServerResponse,
+  session: CorrectionGraphSession,
+) {
+  response.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  response.write(": connected\n\n");
+
+  const unsubscribe = session.subscribe((event) => {
+    response.write(`id: ${event.sequence}\n`);
+    response.write("event: trace\n");
+    response.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+
+  const cleanup = () => {
+    unsubscribe();
+  };
+
+  request.once("close", cleanup);
+  response.once("close", cleanup);
 }

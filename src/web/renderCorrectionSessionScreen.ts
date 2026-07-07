@@ -336,13 +336,22 @@ export function renderCorrectionSessionScreen(): string {
         rewriteDraft: "Rewrite draft",
       };
       let sessionId;
+      let eventSource;
+      let eventStreamReady;
+      let hasSettledResult = false;
+      let activeReceiveEpoch;
+      const livePendingWork = new Set();
 
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         submitButton.disabled = true;
         status.textContent = "Running correction";
         errorOutput.hidden = true;
-        renderActivityList("#pending-work", Object.keys(operationLabels));
+        livePendingWork.clear();
+        renderActivityList(
+          "#pending-work",
+          hasSettledResult ? [] : Object.keys(operationLabels),
+        );
 
         try {
           if (!sessionId) {
@@ -351,6 +360,9 @@ export function renderCorrectionSessionScreen(): string {
             });
             const session = await readJson(sessionResponse);
             sessionId = session.sessionId;
+            await openEventStream();
+          } else {
+            await openEventStream();
           }
 
           const formData = new FormData(form);
@@ -373,6 +385,7 @@ export function renderCorrectionSessionScreen(): string {
           const invocation = await readJson(invocationResponse);
           renderResult(invocation.viewModel.finalResult);
           renderExecution(invocation.viewModel.execution);
+          hasSettledResult = true;
           status.textContent = "Correction settled";
         } catch (error) {
           status.textContent = "Correction failed";
@@ -383,6 +396,59 @@ export function renderCorrectionSessionScreen(): string {
           submitButton.disabled = false;
         }
       });
+
+      function openEventStream() {
+        if (eventSource) return eventStreamReady;
+
+        eventStreamReady = new Promise((resolve) => {
+          eventSource = new EventSource(
+            "/api/sessions/" + encodeURIComponent(sessionId) + "/events",
+          );
+          eventSource.addEventListener("open", () => resolve(), { once: true });
+          eventSource.addEventListener("trace", (event) => {
+            applyLiveTraceEvent(JSON.parse(event.data));
+          });
+        });
+
+        return eventStreamReady;
+      }
+
+      function applyLiveTraceEvent(liveEvent) {
+        const traceEvent = liveEvent.event;
+        if (
+          traceEvent.scope === "runtime" &&
+          traceEvent.type === "started" &&
+          traceEvent.label === "receive"
+        ) {
+          activeReceiveEpoch = traceEvent.metadata?.receiveEpoch;
+          livePendingWork.clear();
+          document.querySelector("#execution-epoch").textContent =
+            activeReceiveEpoch === undefined
+              ? "Running"
+              : "Running epoch " + activeReceiveEpoch;
+          renderActivityList("#pending-work", [...livePendingWork]);
+          return;
+        }
+
+        if (activeReceiveEpoch === undefined) return;
+        if (traceEvent.scope !== "resource") return;
+        if (!(traceEvent.label in operationLabels)) return;
+
+        if (traceEvent.type === "pending") {
+          livePendingWork.add(traceEvent.label);
+          renderActivityList("#pending-work", [...livePendingWork]);
+          return;
+        }
+
+        if (
+          traceEvent.type === "resolved" ||
+          traceEvent.type === "skipped" ||
+          traceEvent.type === "rejected"
+        ) {
+          livePendingWork.delete(traceEvent.label);
+          renderActivityList("#pending-work", [...livePendingWork]);
+        }
+      }
 
       async function readJson(response) {
         const body = await response.json();

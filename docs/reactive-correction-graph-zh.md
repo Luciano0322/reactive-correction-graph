@@ -1344,7 +1344,149 @@ Web inspector
   = 即時與離線都能閱讀的 developer observability layer
 ```
 
-這也讓下一階段 Task 37 的問題變得明確：如果 LangGraph workflow 需要 checkpoint 或 resume，
+這也讓 Task 37 的問題變得明確：如果 LangGraph workflow 需要 checkpoint 或 resume，
 我們不能保存 live runtime；只能保存 plain serializable state，然後在需要執行 correction node
 時重建 session。換句話說，Task 36 完成的是「共用 session API」，Task 37 要處理的是
 「durable LangGraph boundary」。
+
+## Task 37：Durable LangGraph Session Boundary
+
+Task 37 補上的是 LangGraph checkpoint / restore 的 durable state 邊界。這一步不是要宣稱已經
+完成 production-grade LangGraph persistence，而是先把最容易混淆的地方釘清楚：
+
+```txt
+LangGraph checkpoint state stores serializable facts.
+signal-kernel runtime instances are rebuilt, not persisted.
+```
+
+也就是說，checkpoint 裡可以放 draft、user intent、style guide、claims、final result、trace、
+snapshot statuses 這些 plain data；但不能放 live runtime、signal、computed、resource、effect、
+Promise、AbortController、subscription 或 session instance。這些東西都是 process-local，
+不能當成 durable graph state。
+
+Task 37a 先定義 checkpoint contract：
+
+```ts
+type CorrectionGraphCheckpoint = {
+  schemaVersion: 1;
+  state: CorrectionGraphCheckpointState;
+};
+```
+
+並提供：
+
+```ts
+createCorrectionGraphCheckpoint(state)
+parseCorrectionGraphCheckpoint(value)
+```
+
+`parseCorrectionGraphCheckpoint()` 會拒絕 unsupported schema version 與非 JSON-compatible 的值。
+測試特別放入 function、Promise、session instance，確認它們不能混進 checkpoint。這是為了避免
+未來接真實 LangGraph checkpointer 或 artifact bundle 時，把 live object 假裝成可保存資料。
+
+Task 37b 加上 restore helper：
+
+```ts
+restoreCorrectionSessionFromCheckpoint(value)
+```
+
+restore 的語意是：從 checkpoint 取回 durable input，建立一個 fresh `createCorrectionSession()`，
+再 `receive()` checkpoint input。它不會帶回舊 trace、graphTrace 或 live runtime cache；settle
+後 observable final result 應該與原本 deterministic mock graph state 等價。
+
+Task 37c 驗證 restore 後第二次 receive 仍然保留 selective recomputation。測試流程是：
+
+1. 先跑 LangGraph workflow 得到 completed graph state。
+2. 產生 checkpoint。
+3. 從 checkpoint restore fresh session。
+4. settle 第一次 restored input。
+5. 第二次只新增 style guide。
+6. 驗證 `factCheck` 沒有 stale / pending，`styleReview` 與 `rewriteDraft` 有 pending。
+
+這證明 checkpoint restore 後，runtime 可以重建 enough local cache，讓 style-only update 不需要
+重跑 fact check。但這裡要注意一句話：
+
+```txt
+Runtime cache behavior is an optimization, not durable truth.
+```
+
+durable truth 仍然是 checkpoint 裡的 serialized state；runtime cache 只是 restore 後在本機重新建起來的
+執行狀態。
+
+Task 37d 處理 stale pre-restore async work。測試刻意讓舊 session 的第二次 rewrite 卡在 pending，
+此時從 checkpoint restore 新 session；等新 session settle 後，再釋放舊 session 的 pending rewrite。
+結果確認：
+
+- restored session 的 final result 不會被舊 work 改寫。
+- restored session 的 trace 長度不會因舊 work 完成而增加。
+- restored session 仍然只有自己的 receive epoch。
+- 舊 session 的 stale rewrite 確實完成，代表測試不是假陽性。
+
+這個結果來自一個很重要的設計：restore 不是「接回舊 runtime」，而是「用 checkpoint data 建立新 runtime」。
+因此舊 session 的 async work 只能影響舊 session，不會穿透到 restored session。
+
+Task 37e 把 checkpoint contract 接到 LangGraph session wrapper：
+
+```ts
+const session = createCorrectionGraphSession();
+const state = await session.invoke(input);
+const checkpoint = session.checkpoint(state);
+
+const restored = createCorrectionGraphSession({ checkpoint });
+const nextState = await restored.invoke(nextInput);
+```
+
+`createCorrectionGraphSession({ checkpoint })` 會建立 checkpoint-backed runtime。第一次 invoke 時，它會先
+settle checkpoint input，重建 runtime 內部狀態，再套用這次 invoke 的 input。這讓 wrapper 層可以驗證：
+從 checkpoint restore 後，如果 `nextInput` 只是 style-only update，仍然不重跑 fact check。
+
+Task 37f 最後把限制寫成文件：`docs/durable-langgraph-session.md`。這份文件的重點不是把功能誇大，
+而是把目前能證明與不能證明的邊界列清楚。
+
+目前能證明的是：
+
+- checkpoint 有 explicit schema version。
+- checkpoint 只接受 JSON-compatible data。
+- live runtime object 不會進入 graph state。
+- restore 可以重建 fresh correction session。
+- restore 後仍可驗證 selective recomputation。
+- pre-restore in-flight async work 不會覆蓋 restored result。
+- graph session wrapper 可以產生 checkpoint，也可以從 checkpoint 建立 restored session。
+
+目前不能宣稱的是：
+
+- 這不是 production checkpointing claim。
+- 還沒有接真實 LangGraph checkpointer。
+- 沒有處理 distributed durability。
+- 沒有保證 exactly-once delivery。
+- 沒有處理跨 process 的 provider cancellation。
+- 長時間 in-flight work 不會被 resume，而是從 durable input 重建。
+
+所以 Task 37 完成後，專案目前的架構可以整理成：
+
+```txt
+LangGraph
+  = 外層 workflow orchestration / checkpoint policy
+
+Checkpoint contract
+  = versioned serializable graph facts
+
+Headless session SDK
+  = 本機 correction runtime session lifecycle
+
+signal-kernel runtime
+  = 單一 correction node 內部的 reactive invalidation / async settling
+
+Trace + artifact + inspector
+  = 可觀測、可重現、可教學的 evidence layer
+```
+
+這讓專案的定位更往前推了一步：它不只是 CLI demo，也不只是 web inspector，而是開始證明
+「一個 LangGraph node 裡的 reactive runtime 可以被 durable graph state 重新建立」，同時又不把
+runtime cache、live async work 或 process-local handles 誤包裝成 checkpoint data。
+
+換句話說，目前可以對外說明的是：
+
+> reactive-correction-graph 展示了如何在 LangGraph workflow 中嵌入一個 signal-kernel runtime，
+> 用細粒度 invalidation 減少不必要的 agent work，並透過 trace、artifact、inspector、checkpoint
+> contract 讓這個行為可以被驗證、被重現、被解釋。

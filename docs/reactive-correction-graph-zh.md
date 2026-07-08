@@ -993,14 +993,14 @@ JavaScript 呈現 draft、result 與 execution activity。送出期間保留上�
 flowchart TD
   web["Web UI<br/>使用者可理解與操作的資料"]
   api["Session API / View Model<br/>明確的公開投影"]
-  graph["LangGraph State<br/>跨節點、checkpoint、人工介入所需資料"]
+  db["LangGraph State<br/>跨節點、checkpoint、人工介入所需資料"]
   runtime["signal-kernel Runtime<br/>局部衍生、可重算、高頻變動資料"]
 
   web --> api
-  api --> graph
-  graph --> runtime
-  runtime --> graph
-  graph --> api
+  api --> db
+  db --> runtime
+  runtime --> db
+  db --> api
 ```
 
 目前資料可以這樣判斷：

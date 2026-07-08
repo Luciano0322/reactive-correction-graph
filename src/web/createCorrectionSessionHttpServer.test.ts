@@ -124,6 +124,14 @@ describe("createCorrectionSessionHttpServer", () => {
             emitted: ["finalResult"],
           },
         },
+        inspector: {
+          source: {
+            type: "live-session",
+            sessionId: "session-view-model",
+            mode: "runtime",
+            provider: "deterministic-mock",
+          },
+        },
       },
       rawStateExposed: false,
     });

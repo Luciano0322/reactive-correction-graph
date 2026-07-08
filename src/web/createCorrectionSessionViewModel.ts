@@ -1,5 +1,5 @@
-import type { CorrectionGraphState } from "../graph/createCorrectionGraph.js";
 import type { CorrectionRuntimeInput, FinalResult } from "../schemas/correction.js";
+import type { CorrectionSessionState } from "../session/createCorrectionSession.js";
 import {
   projectReceiveExecutionSummary,
   type ReceiveExecutionSummary,
@@ -18,7 +18,7 @@ export type CorrectionSessionViewModel = {
 };
 
 export function createCorrectionSessionViewModel(
-  state: CorrectionGraphState,
+  state: CorrectionSessionState,
 ): CorrectionSessionViewModel {
   if (!state.finalResult || !state.snapshot) {
     throw new Error("Settled correction state is missing final output");
@@ -43,7 +43,7 @@ export function createCorrectionSessionViewModel(
   };
 }
 
-function latestReceiveEpoch(state: CorrectionGraphState): number {
+function latestReceiveEpoch(state: CorrectionSessionState): number {
   for (let index = state.trace.length - 1; index >= 0; index -= 1) {
     const event = state.trace[index];
     const receiveEpoch =

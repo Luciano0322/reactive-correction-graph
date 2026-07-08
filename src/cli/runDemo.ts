@@ -9,7 +9,7 @@ import type {
   CorrectionRuntimeInput,
   CorrectionRuntimeOutput,
 } from "../schemas/correction.js";
-import { createCorrectionRuntime } from "../runtime/createCorrectionRuntime.js";
+import { createCorrectionSession } from "../session/createCorrectionSession.js";
 import { createTraceCollector } from "../trace/createTraceCollector.js";
 import type { TraceEvent } from "../trace/types.js";
 import { createCorrectionModelFromEnv } from "../llm/createCorrectionModel.js";
@@ -65,19 +65,20 @@ async function main() {
       provider: selectedProvider,
     });
 
-    const runtime = createCorrectionRuntime({
+    const session = createCorrectionSession({
       traceCollector,
       model,
       ...settleOptionsForProvider(selectedProvider),
     });
-    runtime.receive(input);
-    await runtime.runUntilSettled();
+    session.receive(input);
+    await session.runUntilSettled();
 
-    state = runtime.emit();
     traceCollector.completed("cli", "demo", {
       outputDir: ".output",
     });
-    trace = runtime.trace();
+    const sessionState = session.emit();
+    state = sessionState;
+    trace = sessionState.trace;
   }
 
   if (!state.finalResult) {

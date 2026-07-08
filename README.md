@@ -4,6 +4,7 @@ Reproducible CLI demo for validating a signal-kernel powered reactive
 correction runtime inside a LangGraph workflow.
 
 See [TDD Workflow](./docs/tdd-workflow.md) for the red-green-refactor process used to add runtime behavior.
+See [Headless Session SDK](./docs/headless-session-sdk.md) for how CLI, web, and LangGraph integrations depend on the shared session boundary.
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
 See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama demo path.
 

@@ -1160,3 +1160,191 @@ artifact bundle = 離線工具、report、CI artifact 的版本化入口
 
 三者描述的是同一條 runtime lifecycle，但生命週期與使用場景不同。這個分層讓 Web Inspector
 可以即時顯示正在跑的工作，同時保留 CLI artifact 的可重現性與離線可讀性。
+
+## Task 35：Developer Inspector View Model
+
+Task 35 的重點是把前面累積的 trace、artifact bundle、execution summary、verification
+evidence 整理成一個 developer 可以理解的 inspector view model。這裡刻意沒有做成 React
+或 Vue adapter，因為目前更重要的是定義一個 framework-neutral 的資料投影：
+
+```txt
+live session snapshot / saved artifact bundle
+  -> developer inspector view model
+  -> vanilla web rendering / future editor panel / future external tool
+```
+
+這一步的設計邊界是：
+
+| 資料 | 預設使用者結果 | Developer Inspector |
+| --- | --- | --- |
+| revised draft | 顯示 | 顯示 |
+| correction summary | 顯示 | 顯示 |
+| claims | 隱藏 | 唯讀顯示 |
+| user intent | 視產品需要 | 顯示來源與目前值 |
+| runtime trace | 隱藏 | 依 receive 分組 |
+| recomputed / reused / superseded | 隱藏 | 顯示 |
+| verification / corroboration | 摘要或隱藏 | 與 recomputation 分開顯示 |
+| missing artifact warning | 必要時顯示 | 顯示明確診斷 |
+
+這個分層是為了避免把 agent runtime 的內部資料全部丟到一般 UI。一般使用者需要知道的是
+「結果是什麼、還有哪些 unresolved issues」；開發者才需要看「為什麼這次 style-only update
+沒有重跑 fact check」、「哪一個 receive 產生了 pending / resolved」、「哪些 artifact 缺失導致
+inspector 無法完整還原」。
+
+Task 35a 先從 artifact bundle 建立 inspector view model，讓 `.output/manifest.json`、
+`trace.json`、`state.json`、`comparison.json` 等離線輸出可以被同一套 contract 讀取。
+Task 35b 把 execution summary 投影成 receive-level groups，例如：
+
+```txt
+receive 1
+  recomputed: factCheck, styleReview, rewriteDraft
+  emitted: finalResult
+
+receive 2
+  reused: factCheck
+  recomputed: styleReview, rewriteDraft
+  emitted: finalResult
+```
+
+Task 35c 加上 developer-only 的 claims、intent 與 evidence sections，並保留 Task 33 建立的
+邊界：verification attempts 不等於 reactive recomputation calls。Task 35d 則讓同一套 view
+model 可以從 live session snapshot 建立，而不是只能讀 artifact bundle。
+
+Task 35e 把 inspector 接進 local web demo，但仍然只使用 vanilla HTML/CSS/JavaScript。這裡的
+目的不是建立正式產品 UI，而是證明：
+
+```txt
+runtime evidence 可以被框架無關地投影成可讀畫面
+```
+
+Task 35f 再用 browser tests 驗證三種情境：
+
+1. empty inspector data 不會造成 broken UI。
+2. successful session 會顯示 result、trace、claims、execution groups。
+3. partially missing artifact 會顯示 warning，而不是讓 inspector 假裝資料完整。
+
+到這裡，CLI artifact 與 web inspector 開始形成同一條觀測鏈：
+
+```txt
+runtime trace
+  -> settled artifact
+  -> inspector view model
+  -> local developer UI
+```
+
+這對後續推廣很重要，因為「減少重算」本身是底層機制；inspector 讓這個底層機制變成可被看見、
+可被教學、可被 debug 的行為。
+
+## Task 36：Headless Correction Session SDK
+
+Task 36 把 CLI、web、未來 LangGraph node 需要共用的 runtime orchestration 收斂成一個
+headless session SDK。這一步很關鍵，因為如果 CLI、web、LangGraph 各自直接操作
+`createCorrectionRuntime()`，後續很容易長出三套 receive / settle / emit / trace / reset 的邏輯。
+
+新的邊界是：
+
+```ts
+session.receive(input)
+session.runUntilSettled()
+session.emit()
+session.snapshot()
+session.subscribe(listener)
+session.reset()
+session.dispose()
+```
+
+依賴方向變成：
+
+```txt
+CLI
+  -> createCorrectionSession()
+    -> signal-kernel correction runtime
+
+Web server
+  -> createCorrectionSession()
+    -> signal-kernel correction runtime
+
+Future LangGraph node
+  -> createCorrectionSession()
+    -> signal-kernel correction runtime
+```
+
+SDK 不應該知道 HTTP、DOM、React、Vue、CLI argument parsing，也不應該自己讀環境變數決定
+provider。Provider/model selection 要由外部注入，SDK 只負責 headless runtime session lifecycle。
+
+Task 36a 先定義 `createCorrectionSession()`，把既有 runtime 包成 headless API。`emit()` 會回傳
+plain correction state，`snapshot()` 會回傳可序列化的 session 狀態、trace 與 runtime snapshot。
+這讓外部 integration 不需要知道 signal、computed、resource、effect 的內部結構。
+
+Task 36b 把 CLI demo path 改成使用 session SDK。也就是 CLI 仍然負責：
+
+- 解析 command arguments。
+- 讀取 markdown input。
+- 選擇 mock 或 Ollama provider。
+- 寫出 `.output/result.md`、`.output/state.json`、`.output/trace.json`、`.output/manifest.json`。
+
+但 runtime 執行本身改由 session 負責：
+
+```ts
+session.receive(input);
+await session.runUntilSettled();
+const state = session.emit();
+```
+
+Task 36c 把 local web server 也遷移到 session SDK。HTTP server 現在只負責 session id、
+request/response、SSE endpoint 與 view model shaping；真正的 correction lifecycle 仍然是
+同一個 session contract。這讓 CLI 與 web 不再是兩套 demo，而是同一個 runtime API 的兩種外殼。
+
+Task 36d 補上 snapshot 與 artifact-bundle helper。這代表外部 SDK 使用者不一定要透過 CLI，
+也能從：
+
+```ts
+const snapshot = session.snapshot();
+```
+
+建立 runtime artifact bundle。這一步讓 artifact 邊界從 CLI 專屬能力變成 SDK 能力。
+
+Task 36e 鎖住 reset、dispose 與 subscription 行為。這裡發現一個重要細節：如果 `subscribe()`
+只是直接綁在目前 runtime 上，`reset()` 後 subscriber 會卡在舊 runtime。修正後，subscription
+變成 session-level fanout：
+
+```txt
+session subscriber
+  -> current runtime subscription
+  -> reset
+  -> new runtime subscription
+  -> same session subscriber continues receiving events
+```
+
+也就是說，`reset()` 可以換掉內部 runtime，但不會讓外部 subscriber 失效；`dispose()` 則會停止
+forward events、清掉 listeners，並讓後續 public operations 明確丟出 disposed error。這對 web
+SSE 與未來 LangGraph node 都很重要，因為它讓 session lifecycle 有可預測的結束語意。
+
+Task 36f 最後把這個依賴方向寫成文件：`docs/headless-session-sdk.md`。文件明確記錄：
+
+- CLI 依賴 SDK，不直接碰 runtime internals。
+- Web 依賴 SDK，不把 HTTP/SSE concerns 放進 runtime。
+- LangGraph 依賴 SDK，但 checkpointed graph state 必須保持 serializable。
+- 不要把 live signal objects、computed nodes、AbortController、subscriptions 或 session instance
+  存進 LangGraph state。
+
+目前做到 Task 36 之後，專案的定位更清楚了：
+
+```txt
+signal-kernel runtime
+  = 細粒度 reactive invalidation 與 async settling
+
+headless session SDK
+  = CLI / Web / LangGraph 共用的 runtime session boundary
+
+CLI artifacts
+  = 可重現、可離線檢查的證據輸出
+
+Web inspector
+  = 即時與離線都能閱讀的 developer observability layer
+```
+
+這也讓下一階段 Task 37 的問題變得明確：如果 LangGraph workflow 需要 checkpoint 或 resume，
+我們不能保存 live runtime；只能保存 plain serializable state，然後在需要執行 correction node
+時重建 session。換句話說，Task 36 完成的是「共用 session API」，Task 37 要處理的是
+「durable LangGraph boundary」。

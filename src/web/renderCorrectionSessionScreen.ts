@@ -232,6 +232,46 @@ export function renderCorrectionSessionScreen(): string {
       .execution-group[data-state="reused"] { border-top: 3px solid #15803d; }
       .execution-group[data-state="superseded"] { border-top: 3px solid #b91c1c; }
 
+      .developer-inspector {
+        margin-top: 1.5rem;
+        padding-top: 1rem;
+        border-top: 1px solid #aebdc5;
+      }
+
+      .inspector-heading {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 1rem;
+      }
+
+      .inspector-heading h3 { margin-bottom: 0.75rem; }
+
+      .inspector-source {
+        color: #64727d;
+        font-size: 0.75rem;
+      }
+
+      .inspector-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+        gap: 1rem;
+      }
+
+      .inspector-group {
+        min-width: 0;
+        padding-top: 0.75rem;
+        border-top: 1px solid #d8e0e4;
+      }
+
+      .inspector-group p,
+      .inspector-group ul {
+        color: #344451;
+        font-size: 0.8125rem;
+      }
+
+      .inspector-group p { margin: 0 0 0.5rem; }
+
       [hidden] { display: none !important; }
 
       @media (max-width: 55rem) {
@@ -321,6 +361,42 @@ export function renderCorrectionSessionScreen(): string {
             </section>
           </div>
         </section>
+        <section
+          id="developer-inspector"
+          class="developer-inspector"
+          aria-labelledby="developer-inspector-heading"
+          hidden
+        >
+          <div class="inspector-heading">
+            <h3 id="developer-inspector-heading">Developer inspector</h3>
+            <span id="inspector-source" class="inspector-source">Not attached</span>
+          </div>
+          <div class="inspector-grid">
+            <section class="inspector-group">
+              <h4>Trace events</h4>
+              <p id="inspector-trace-count">0</p>
+            </section>
+            <section class="inspector-group">
+              <h4>Runtime intent</h4>
+              <p>User intent: <span id="inspector-user-intent">None</span></p>
+              <p>Style guide: <span id="inspector-style-guide">None</span></p>
+            </section>
+            <section class="inspector-group">
+              <h4>Claims</h4>
+              <ul id="inspector-claims" aria-label="Inspector claims"><li>None</li></ul>
+            </section>
+            <section class="inspector-group">
+              <h4>Latest receive</h4>
+              <p id="inspector-receive-epoch">Not run</p>
+              <ul id="inspector-recomputed-work" aria-label="Inspector recomputed work"><li>None</li></ul>
+              <ul id="inspector-reused-work" aria-label="Inspector reused work"><li>None</li></ul>
+            </section>
+            <section class="inspector-group">
+              <h4>Warnings</h4>
+              <ul id="inspector-warnings" aria-label="Inspector warnings"><li>None</li></ul>
+            </section>
+          </div>
+        </section>
       </section>
     </main>
     <script>
@@ -330,10 +406,12 @@ export function renderCorrectionSessionScreen(): string {
       const errorOutput = document.querySelector("#session-error");
       const emptyResult = document.querySelector("#empty-result");
       const result = document.querySelector("#correction-result");
+      const inspectorPanel = document.querySelector("#developer-inspector");
       const operationLabels = {
         factCheck: "Fact check",
         styleReview: "Style review",
         rewriteDraft: "Rewrite draft",
+        finalResult: "Final result",
       };
       let sessionId;
       let eventSource;
@@ -385,6 +463,7 @@ export function renderCorrectionSessionScreen(): string {
           const invocation = await readJson(invocationResponse);
           renderResult(invocation.viewModel.finalResult);
           renderExecution(invocation.viewModel.execution);
+          renderInspector(invocation.inspector);
           hasSettledResult = true;
           status.textContent = "Correction settled";
         } catch (error) {
@@ -474,6 +553,53 @@ export function renderCorrectionSessionScreen(): string {
         renderActivityList("#recomputed-work", execution.recomputed);
         renderActivityList("#reused-work", execution.reused);
         renderActivityList("#superseded-work", execution.superseded);
+      }
+
+      function renderInspector(inspector) {
+        if (!inspector) return;
+
+        const diagnostics = inspector.developerDiagnostics;
+        const internalState = diagnostics.internalState;
+        const receives = diagnostics.execution?.receives ?? [];
+        const latestReceive = receives.at(-1);
+
+        document.querySelector("#inspector-source").textContent =
+          inspector.source.type === "live-session"
+            ? "Live session " + inspector.source.sessionId
+            : "Artifact bundle " + inspector.source.runId;
+        document.querySelector("#inspector-trace-count").textContent =
+          diagnostics.trace.status === "available"
+            ? String(diagnostics.trace.eventCount)
+            : "Missing";
+        document.querySelector("#inspector-user-intent").textContent =
+          internalState?.intent.userIntent ?? "None";
+        document.querySelector("#inspector-style-guide").textContent =
+          internalState?.intent.styleGuide ?? "None";
+        renderList(
+          "#inspector-claims",
+          internalState?.claims.length
+            ? internalState.claims.map((claim) => claim.text)
+            : ["None"],
+        );
+        document.querySelector("#inspector-receive-epoch").textContent =
+          latestReceive
+            ? "Receive epoch " + latestReceive.receiveEpoch
+            : "Not run";
+        renderActivityList(
+          "#inspector-recomputed-work",
+          latestReceive?.recomputed ?? [],
+        );
+        renderActivityList(
+          "#inspector-reused-work",
+          latestReceive?.reused ?? [],
+        );
+        renderList(
+          "#inspector-warnings",
+          diagnostics.warnings?.length
+            ? diagnostics.warnings.map((warning) => warning.message)
+            : ["None"],
+        );
+        inspectorPanel.hidden = false;
       }
 
       function renderActivityList(selector, operations) {

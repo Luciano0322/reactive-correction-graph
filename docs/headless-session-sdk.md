@@ -88,6 +88,15 @@ This keeps LangGraph responsible for durable orchestration and keeps
 signal-kernel responsible for fine-grained reactive invalidation inside one
 correction node.
 
+### Durable LangGraph checkpoints
+
+The session SDK is the local execution boundary. Durable graph state has a
+stricter contract: it must contain serializable facts, not live runtime
+objects. See [Durable LangGraph Session Boundary](./durable-langgraph-session.md)
+(`docs/durable-langgraph-session.md`) for
+`createCorrectionGraphSession({ checkpoint })`, checkpoint validation, restore
+limits, and future production work.
+
 ## Artifact helpers
 
 When an integration needs portable output, it can serialize `session.snapshot()`

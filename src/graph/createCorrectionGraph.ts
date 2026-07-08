@@ -15,9 +15,16 @@ import {
 } from "../runtime/correctionRuntimeAdapter.js";
 import {
   createCorrectionRuntime,
+  type CorrectionRuntime,
   type CorrectionRuntimeOptions,
   type CorrectionRuntimeSnapshot,
 } from "../runtime/createCorrectionRuntime.js";
+import {
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+  restoreCorrectionSessionFromCheckpoint,
+  type CorrectionGraphCheckpoint,
+} from "./correctionGraphCheckpoint.js";
 
 const CorrectionGraphAnnotation = Annotation.Root({
   draft: Annotation<string>,
@@ -41,6 +48,9 @@ const CorrectionGraphAnnotation = Annotation.Root({
 
 export type CorrectionGraphState = typeof CorrectionGraphAnnotation.State;
 export type CorrectionGraphUpdate = typeof CorrectionGraphAnnotation.Update;
+export type CorrectionGraphSessionOptions = CorrectionRuntimeOptions & {
+  checkpoint?: unknown;
+};
 type GraphNodeLabel = "prepareInput" | "reactiveCorrection" | "finalize";
 
 let nextGraphTraceId = 1;
@@ -62,11 +72,17 @@ export function createCorrectionGraph(
 }
 
 export function createCorrectionGraphSession(
-  options: CorrectionRuntimeOptions = {},
+  options: CorrectionGraphSessionOptions = {},
 ) {
-  const runtime = createCorrectionRuntime(options);
+  const { checkpoint, ...runtimeOptions } = options;
+  const runtime =
+    checkpoint === undefined
+      ? createCorrectionRuntime(runtimeOptions)
+      : createCheckpointBackedCorrectionRuntime(checkpoint, runtimeOptions);
+
   return Object.assign(createCorrectionGraph({ runtime }), {
     subscribe: runtime.subscribe,
+    checkpoint: createCorrectionGraphCheckpoint,
   });
 }
 
@@ -110,6 +126,77 @@ function toRuntimeInput(state: CorrectionGraphState): CorrectionRuntimeInput {
     userIntent: state.userIntent,
     styleGuide: state.styleGuide,
   };
+}
+
+function createCheckpointBackedCorrectionRuntime(
+  checkpointValue: unknown,
+  options: CorrectionRuntimeOptions,
+): CorrectionRuntime {
+  const checkpoint = parseCorrectionGraphCheckpoint(checkpointValue);
+  const checkpointInput = checkpointStateToRuntimeInput(checkpoint);
+  const session = restoreCorrectionSessionFromCheckpoint(checkpoint, options);
+  let restoredSettled = false;
+  let pendingInput: CorrectionRuntimeInput | undefined;
+
+  return {
+    receive(input) {
+      if (!restoredSettled) {
+        pendingInput = input;
+        return;
+      }
+
+      session.receive(input);
+    },
+    async runUntilSettled() {
+      if (!restoredSettled) {
+        await session.runUntilSettled();
+        restoredSettled = true;
+
+        const input = pendingInput;
+        pendingInput = undefined;
+        if (input && !areRuntimeInputsEqual(input, checkpointInput)) {
+          session.receive(input);
+          await session.runUntilSettled();
+        }
+        return;
+      }
+
+      await session.runUntilSettled();
+    },
+    emit() {
+      return session.emit();
+    },
+    snapshot() {
+      return session.snapshot().runtimeSnapshot;
+    },
+    trace() {
+      return session.snapshot().trace;
+    },
+    subscribe(listener) {
+      return session.subscribe(listener);
+    },
+  };
+}
+
+function checkpointStateToRuntimeInput(
+  checkpoint: CorrectionGraphCheckpoint,
+): CorrectionRuntimeInput {
+  return {
+    draft: checkpoint.state.draft,
+    userIntent: checkpoint.state.userIntent,
+    styleGuide: checkpoint.state.styleGuide,
+  };
+}
+
+function areRuntimeInputsEqual(
+  left: CorrectionRuntimeInput,
+  right: CorrectionRuntimeInput,
+) {
+  return (
+    left.draft === right.draft &&
+    left.userIntent === right.userIntent &&
+    left.styleGuide === right.styleGuide
+  );
 }
 
 function graphLifecycleEvents(label: GraphNodeLabel): TraceEvent[] {

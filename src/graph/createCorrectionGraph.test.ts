@@ -373,6 +373,67 @@ describe("createCorrectionGraph", () => {
     });
   });
 
+  it("restores a checkpoint through the graph session wrapper", async () => {
+    const session = createCorrectionGraphSession();
+    const draft = "Signal-kernel coordinates async correction branches.";
+    const firstState = await session.invoke({
+      draft,
+      userIntent: "Explain durable graph session restore.",
+    });
+    const checkpoint = session.checkpoint(firstState);
+    const serializedCheckpoint = JSON.parse(JSON.stringify(checkpoint));
+    const restoredSession = createCorrectionGraphSession({
+      checkpoint: serializedCheckpoint,
+    });
+
+    const restoredState = await restoredSession.invoke({
+      draft,
+      userIntent: "Explain durable graph session restore.",
+      styleGuide: "Use concise technical language.",
+    });
+    const restoredCheckpoint = restoredSession.checkpoint(restoredState);
+    const receiveEpochs = restoredState.trace
+      .map((event) =>
+        event.scope === "runtime" &&
+        event.type === "started" &&
+        event.label === "receive"
+          ? event.metadata?.receiveEpoch
+          : undefined,
+      )
+      .filter((epoch): epoch is number => typeof epoch === "number");
+    const secondReceiveTrace = restoredState.trace.slice(
+      serializedCheckpoint.state.trace.length,
+    );
+    const hasEvent = (type: string, label: string) =>
+      secondReceiveTrace.some(
+        (event) => event.type === type && event.label === label,
+      );
+
+    expect({
+      checkpointSchemaVersion: checkpoint.schemaVersion,
+      restoredCheckpointSchemaVersion: restoredCheckpoint.schemaVersion,
+      receiveEpochs,
+      factCheckPending: hasEvent("pending", "factCheck"),
+      styleReviewPending: hasEvent("pending", "styleReview"),
+      rewriteDraftPending: hasEvent("pending", "rewriteDraft"),
+      summary: restoredState.finalResult?.summary,
+      restoredCheckpointFinalResult: restoredCheckpoint.state.finalResult,
+      graphFinalized: restoredState.finalized,
+    }).toEqual({
+      checkpointSchemaVersion: 1,
+      restoredCheckpointSchemaVersion: 1,
+      receiveEpochs: [1, 2],
+      factCheckPending: false,
+      styleReviewPending: true,
+      rewriteDraftPending: true,
+      summary: expect.arrayContaining([
+        "Apply style guide: Use concise technical language.",
+      ]),
+      restoredCheckpointFinalResult: restoredState.finalResult,
+      graphFinalized: true,
+    });
+  });
+
   it("uses the correction model supplied by the graph caller", async () => {
     const graph = createCorrectionGraph({
       model: {

@@ -1,4 +1,9 @@
 import type { TraceEvent, TraceEventType, TraceScope } from "./types.js";
+import type {
+  LiveTraceEvent,
+  LiveTraceEventListener,
+  LiveTraceEventSubscription,
+} from "./liveTraceEvents.js";
 
 type TraceInput = Omit<TraceEvent, "id" | "at"> & {
   id?: string;
@@ -8,6 +13,7 @@ type TraceInput = Omit<TraceEvent, "id" | "at"> & {
 export type TraceCollector = {
   record(event: TraceInput): TraceEvent;
   events(): TraceEvent[];
+  subscribe(listener: LiveTraceEventListener): LiveTraceEventSubscription;
   started(scope: TraceScope, label: string, metadata?: Record<string, unknown>): TraceEvent;
   completed(scope: TraceScope, label: string, metadata?: Record<string, unknown>): TraceEvent;
   changed(scope: TraceScope, label: string, metadata?: Record<string, unknown>): TraceEvent;
@@ -21,7 +27,9 @@ export type TraceCollector = {
 
 export function createTraceCollector(): TraceCollector {
   const items: TraceEvent[] = [];
+  const listeners = new Set<LiveTraceEventListener>();
   let nextId = 1;
+  let nextSequence = 1;
 
   function record(event: TraceInput): TraceEvent {
     const fullEvent: TraceEvent = {
@@ -30,10 +38,22 @@ export function createTraceCollector(): TraceCollector {
       scope: event.scope,
       type: event.type,
       label: event.label,
-      metadata: event.metadata,
+      ...(event.metadata === undefined ? {} : { metadata: event.metadata }),
     };
 
     items.push(fullEvent);
+    const liveEvent: LiveTraceEvent = {
+      schemaVersion: 1,
+      sequence: nextSequence++,
+      event: cloneTraceEvent(fullEvent),
+    };
+    for (const listener of listeners) {
+      listener({
+        schemaVersion: liveEvent.schemaVersion,
+        sequence: liveEvent.sequence,
+        event: cloneTraceEvent(liveEvent.event),
+      });
+    }
     return fullEvent;
   }
 
@@ -48,6 +68,12 @@ export function createTraceCollector(): TraceCollector {
   return {
     record,
     events: () => [...items],
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     started: recordType("started"),
     completed: recordType("completed"),
     changed: recordType("changed"),
@@ -58,4 +84,21 @@ export function createTraceCollector(): TraceCollector {
     skipped: recordType("skipped"),
     emitted: recordType("emitted"),
   };
+}
+
+function cloneTraceEvent(event: TraceEvent): TraceEvent {
+  return {
+    id: event.id,
+    at: event.at,
+    scope: event.scope,
+    type: event.type,
+    label: event.label,
+    ...(event.metadata === undefined
+      ? {}
+      : { metadata: cloneMetadata(event.metadata) }),
+  };
+}
+
+function cloneMetadata(metadata: Record<string, unknown>) {
+  return JSON.parse(JSON.stringify(metadata)) as Record<string, unknown>;
 }

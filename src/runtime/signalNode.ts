@@ -1,4 +1,8 @@
 import type { TraceEvent } from "../trace/types.js";
+import type {
+  LiveTraceEventListener,
+  LiveTraceEventSubscription,
+} from "../trace/liveTraceEvents.js";
 
 export type SignalNode<InputState, OutputState, SnapshotState = unknown> = {
   receive(state: InputState): void;
@@ -6,4 +10,5 @@ export type SignalNode<InputState, OutputState, SnapshotState = unknown> = {
   emit(): Partial<OutputState>;
   snapshot(): SnapshotState;
   trace(): TraceEvent[];
+  subscribe(listener: LiveTraceEventListener): LiveTraceEventSubscription;
 };

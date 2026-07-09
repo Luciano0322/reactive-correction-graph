@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { LiveTraceEvent } from "../trace/liveTraceEvents.js";
 import {
   createCorrectionRuntime,
   type CorrectionRuntimeModel,
@@ -38,6 +39,49 @@ describe("createCorrectionRuntime", () => {
     expect(eventTypes).toContain("pending");
     expect(eventTypes).toContain("resolved");
     expect(eventTypes).toContain("emitted");
+  });
+
+  it("keeps settled trace output unchanged when live event observers mutate payloads", async () => {
+    const runtime = createCorrectionRuntime();
+    const liveEvents: LiveTraceEvent[] = [];
+
+    const unsubscribe = runtime.subscribe((event) => {
+      liveEvents.push(event);
+      event.event.label = "mutated-live-event";
+      event.event.metadata = { mutated: true };
+    });
+    runtime.receive({
+      draft: "Signal-kernel can maybe coordinate async correction branches.",
+    });
+    await runtime.runUntilSettled();
+    unsubscribe();
+
+    const trace = runtime.trace();
+
+    expect(liveEvents.length).toBeGreaterThan(0);
+    expect(liveEvents.map(({ sequence }) => sequence)).toEqual(
+      liveEvents.map((_, index) => index + 1),
+    );
+    expect(trace).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          scope: "runtime",
+          type: "started",
+          label: "receive",
+        }),
+        expect.objectContaining({
+          scope: "effect",
+          type: "emitted",
+          label: "finalResult",
+        }),
+      ]),
+    );
+    expect(trace.some((event) => event.label === "mutated-live-event")).toBe(
+      false,
+    );
+    expect(
+      trace.some((event) => event.metadata?.mutated === true),
+    ).toBe(false);
   });
 
   it("settles again after a second receive", async () => {

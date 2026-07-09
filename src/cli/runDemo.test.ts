@@ -46,6 +46,20 @@ describe("demo CLI", () => {
           finalResult: expect.objectContaining({
             revisedDraft: expect.stringContaining("Mock correction notes"),
           }),
+          snapshot: expect.objectContaining({
+            statuses: expect.objectContaining({
+              factCheck: "success",
+              styleReview: "success",
+              rewriteDraft: "success",
+            }),
+          }),
+          trace: expect.arrayContaining([
+            expect.objectContaining({
+              scope: "effect",
+              type: "emitted",
+              label: "finalResult",
+            }),
+          ]),
         }),
       },
       trace: {

@@ -4,6 +4,8 @@ Reproducible CLI demo for validating a signal-kernel powered reactive
 correction runtime inside a LangGraph workflow.
 
 See [TDD Workflow](./docs/tdd-workflow.md) for the red-green-refactor process used to add runtime behavior.
+See [Headless Session SDK](./docs/headless-session-sdk.md) for how CLI, web, and LangGraph integrations depend on the shared session boundary.
+See [Durable LangGraph Session Boundary](./docs/durable-langgraph-session.md) for the checkpoint and restore boundary around graph sessions.
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
 See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama demo path.
 
@@ -70,6 +72,33 @@ flowchart LR
   rewrite -. pending/resolved .-> trace
   effect -. emitted .-> trace
 ```
+
+## Live Events, Trace, And Artifacts
+
+The local web demo exposes runtime activity as server-sent events at:
+
+```txt
+GET /api/sessions/:id/events
+```
+
+Each message is a `LiveTraceEvent` with a monotonically increasing `sequence`
+and the same TraceEvent payload used by the settled runtime trace. The live
+stream is for in-flight observation: it lets the UI show resource work such as
+`styleReview pending` before the invocation response finishes.
+
+`trace.json` is the settled artifact form of that lifecycle. It is written after
+a CLI/demo run completes and is the source used by reports, execution summaries,
+and artifact-bundle consumers. The live event stream does not enter the artifact bundle;
+`.output/manifest.json` only records serialized artifacts such as
+`result.md`, `state.json`, `trace.json`, `comparison.json`, and `report.html`.
+
+In short:
+
+| Layer | Purpose | Durability |
+| --- | --- | --- |
+| Live SSE events | In-flight developer feedback for one running session | Ephemeral |
+| `trace.json` | Settled runtime lifecycle for one completed run | Serialized artifact |
+| `manifest.json` artifact bundle | Versioned index of compatible output files | Offline consumer boundary |
 
 ## Reproduce
 

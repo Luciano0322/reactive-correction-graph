@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { expect, test } from "@playwright/test";
+import type { CorrectionRuntimeModel } from "../runtime/createCorrectionRuntime.js";
 import { createCorrectionSessionHttpServer } from "./createCorrectionSessionHttpServer.js";
 
 let server: Server;
@@ -44,6 +45,15 @@ test("submits an initial correction through the mock session workspace", async (
   await expect(result).toContainText(
     "Apply style guide: Use concise technical language.",
   );
+});
+
+test("keeps the developer inspector hidden before a correction runs", async ({
+  page,
+}) => {
+  await page.goto(baseUrl);
+
+  await expect(page.getByText("No correction yet.")).toBeVisible();
+  await expect(page.locator("#developer-inspector")).toBeHidden();
 });
 
 test("shows pending and settled execution activity", async ({ page }) => {
@@ -107,6 +117,152 @@ test("shows pending and settled execution activity", async ({ page }) => {
   ).toContainText("Rewrite draft");
   await expect(activity.getByRole("list", { name: "Pending work" })).toContainText(
     "None",
+  );
+});
+
+test("shows live style-only pending work before the final result arrives", async ({
+  page,
+}) => {
+  const slowServer = createCorrectionSessionHttpServer({
+    runtime: {
+      model: createStyleOnlyDelayedCorrectionModel(1_500),
+      settleTimeoutMs: 5_000,
+    },
+  });
+  const slowBaseUrl = await listen(slowServer);
+
+  try {
+    await page.goto(slowBaseUrl);
+    const activity = page.getByRole("region", { name: "Execution activity" });
+    const pendingWork = activity.getByRole("list", { name: "Pending work" });
+    const draft = "Signal-kernel coordinates async correction branches.";
+
+    await page.getByLabel("Draft").fill(draft);
+    await page.getByRole("button", { name: "Run correction" }).click();
+    await expect(page.getByRole("status")).toHaveText("Correction settled");
+    await expect(activity).toContainText("Settled epoch 1");
+
+    await page.getByLabel("Style guide").fill("Use concise language.");
+    await page.getByRole("button", { name: "Run correction" }).click();
+
+    await expect(pendingWork).toContainText("Style review");
+    await expect(page.getByRole("status")).toHaveText("Running correction");
+    await expect(pendingWork).not.toContainText("Fact check");
+
+    await expect(page.getByRole("status")).toHaveText("Correction settled");
+    await expect(activity).toContainText("Settled epoch 2");
+    await expect(activity.getByRole("list", { name: "Reused work" })).toContainText(
+      "Fact check",
+    );
+  } finally {
+    await closeServer(slowServer);
+  }
+});
+
+test("renders developer inspector data from the live session", async ({
+  page,
+}) => {
+  await page.goto(baseUrl);
+  const draft = "Signal-kernel coordinates async correction branches.";
+
+  await page.getByLabel("Draft").fill(draft);
+  await page
+    .getByLabel("User intent")
+    .fill("Explain reactive invalidation.");
+  await page.getByRole("button", { name: "Run correction" }).click();
+  await expect(page.getByRole("status")).toHaveText("Correction settled");
+
+  const inspector = page.getByRole("region", { name: "Developer inspector" });
+  await expect(inspector).toBeVisible();
+  await expect(inspector).toContainText("Live session");
+  await expect(inspector).toContainText("Trace events");
+  await expect(inspector).toContainText("User intent");
+  await expect(inspector).toContainText("Explain reactive invalidation.");
+  await expect(inspector).toContainText("Claims");
+  await expect(inspector).toContainText(draft);
+  await expect(
+    inspector.getByRole("list", { name: "Inspector recomputed work" }),
+  ).toContainText("Fact check");
+});
+
+test("renders partially missing developer inspector data without breaking the panel", async ({
+  page,
+}) => {
+  const draft = "A correction draft with partial inspector data.";
+
+  await page.route("**/api/sessions/*/invocations", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        schemaVersion: 1,
+        sessionId: "session-partial-inspector",
+        viewModel: {
+          status: "settled",
+          input: { draft },
+          finalResult: {
+            revisedDraft: "A revised draft.",
+            summary: ["Applied correction plan."],
+            unresolvedIssues: [],
+          },
+          resources: {
+            factCheck: "success",
+            styleReview: "success",
+            rewriteDraft: "success",
+          },
+          execution: {
+            receiveEpoch: 1,
+            recomputed: [],
+            reused: [],
+            superseded: [],
+            emitted: ["finalResult"],
+          },
+        },
+        inspector: {
+          title: "Reactive Correction Developer Inspector",
+          source: {
+            type: "live-session",
+            sessionId: "session-partial-inspector",
+            mode: "graph",
+            provider: "deterministic-mock",
+          },
+          userFacing: {
+            resultMarkdown: "# Result",
+          },
+          developerDiagnostics: {
+            trace: {
+              status: "missing",
+              eventCount: null,
+            },
+            artifacts: [],
+            warnings: [
+              {
+                code: "artifact-missing",
+                artifact: "trace",
+                message: "Trace data is unavailable for this inspector snapshot.",
+              },
+            ],
+          },
+        },
+      }),
+    });
+  });
+  await page.goto(baseUrl);
+
+  await page.getByLabel("Draft").fill(draft);
+  await page.getByRole("button", { name: "Run correction" }).click();
+  await expect(page.getByRole("status")).toHaveText("Correction settled");
+
+  const inspector = page.getByRole("region", { name: "Developer inspector" });
+  await expect(inspector).toBeVisible();
+  await expect(inspector).toContainText("Trace events");
+  await expect(inspector).toContainText("Missing");
+  await expect(inspector.getByRole("list", { name: "Inspector claims" })).toContainText(
+    "None",
+  );
+  await expect(inspector).toContainText("Not run");
+  await expect(inspector).toContainText(
+    "Trace data is unavailable for this inspector snapshot.",
   );
 });
 
@@ -219,4 +375,56 @@ async function closeServer(httpServer: Server): Promise<void> {
   });
   httpServer.closeAllConnections();
   await closed;
+}
+
+function createStyleOnlyDelayedCorrectionModel(
+  delayMs: number,
+): CorrectionRuntimeModel {
+  return {
+    async factCheckClaims(claims) {
+      return {
+        items: claims.map((claim) => ({
+          claimId: claim.id,
+          verdict: "supported",
+          note: "Delayed fact check completed.",
+        })),
+      };
+    },
+    async reviewStyle(input) {
+      if (input.styleGuide) {
+        await sleep(delayMs);
+      }
+
+      return {
+        tone: "clear",
+        suggestions: input.styleGuide
+          ? [`Apply style guide: ${input.styleGuide}`]
+          : [],
+      };
+    },
+    async rewriteDraft(input) {
+      if (
+        input.plan.actions.some((action) =>
+          action.startsWith("Apply style guide:"),
+        )
+      ) {
+        await sleep(delayMs);
+      }
+
+      return [
+        input.draft,
+        "",
+        "---",
+        "",
+        "Delayed rewrite",
+        ...input.plan.actions.map((action) => `- ${action}`),
+      ].join("\n");
+    },
+  };
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }

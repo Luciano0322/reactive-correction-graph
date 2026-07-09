@@ -4,13 +4,15 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { createCorrectionGraphSession } from "../graph/createCorrectionGraph.js";
+import { createDeveloperInspectorViewModelFromLiveSessionSnapshot } from "../inspector/createDeveloperInspectorViewModel.js";
 import type { CorrectionRuntimeOptions } from "../runtime/createCorrectionRuntime.js";
 import type { CorrectionRuntimeInput } from "../schemas/correction.js";
+import {
+  createCorrectionSession,
+  type CorrectionSession,
+} from "../session/createCorrectionSession.js";
 import { createCorrectionSessionViewModel } from "./createCorrectionSessionViewModel.js";
 import { renderCorrectionSessionScreen } from "./renderCorrectionSessionScreen.js";
-
-type CorrectionGraphSession = ReturnType<typeof createCorrectionGraphSession>;
 
 export type CorrectionSessionHttpServerOptions = {
   createSessionId?: () => string;
@@ -21,7 +23,7 @@ export function createCorrectionSessionHttpServer(
   options: CorrectionSessionHttpServerOptions = {},
 ) {
   const createSessionId = options.createSessionId ?? randomUUID;
-  const sessions = new Map<string, CorrectionGraphSession>();
+  const sessions = new Map<string, CorrectionSession>();
 
   return createServer((request, response) => {
     void handleRequest(request, response, sessions, createSessionId, options)
@@ -40,7 +42,7 @@ export function createCorrectionSessionHttpServer(
 async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  sessions: Map<string, CorrectionGraphSession>,
+  sessions: Map<string, CorrectionSession>,
   createSessionId: () => string,
   options: CorrectionSessionHttpServerOptions,
 ) {
@@ -64,13 +66,25 @@ async function handleRequest(
 
   if (request.method === "POST" && pathname === "/api/sessions") {
     const sessionId = createSessionId();
-    sessions.set(sessionId, createCorrectionGraphSession(options.runtime));
+    sessions.set(sessionId, createCorrectionSession(options.runtime));
     writeJson(
       response,
       201,
       { schemaVersion: 1, sessionId },
       { location: `/api/sessions/${sessionId}` },
     );
+    return;
+  }
+
+  const eventsRoute = matchSessionRoute(pathname, "events");
+  if (request.method === "GET" && eventsRoute) {
+    const session = sessions.get(eventsRoute.sessionId);
+    if (!session) {
+      writeSessionNotFound(response, eventsRoute.sessionId);
+      return;
+    }
+
+    writeServerSentEvents(request, response, session);
     return;
   }
 
@@ -82,11 +96,18 @@ async function handleRequest(
       return;
     }
 
-    const state = await session.invoke(await readCorrectionInput(request));
+    session.receive(await readCorrectionInput(request));
+    await session.runUntilSettled();
+    const state = session.emit();
     writeJson(response, 200, {
       schemaVersion: 1,
       sessionId: invocationRoute.sessionId,
       viewModel: createCorrectionSessionViewModel(state),
+      inspector: createDeveloperInspectorViewModelFromLiveSessionSnapshot({
+        sessionId: invocationRoute.sessionId,
+        state,
+        mode: "runtime",
+      }),
     });
     return;
   }
@@ -100,7 +121,7 @@ async function handleRequest(
 
     sessions.set(
       resetRoute.sessionId,
-      createCorrectionGraphSession(options.runtime),
+      createCorrectionSession(options.runtime),
     );
     response.writeHead(204);
     response.end();
@@ -185,4 +206,30 @@ function writeJson(
     ...headers,
   });
   response.end(JSON.stringify(body));
+}
+
+function writeServerSentEvents(
+  request: IncomingMessage,
+  response: ServerResponse,
+  session: CorrectionSession,
+) {
+  response.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  response.write(": connected\n\n");
+
+  const unsubscribe = session.subscribe((event) => {
+    response.write(`id: ${event.sequence}\n`);
+    response.write("event: trace\n");
+    response.write(`data: ${JSON.stringify(event)}\n\n`);
+  });
+
+  const cleanup = () => {
+    unsubscribe();
+  };
+
+  request.once("close", cleanup);
+  response.once("close", cleanup);
 }

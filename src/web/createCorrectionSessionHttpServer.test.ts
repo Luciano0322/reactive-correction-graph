@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
+import type { LiveTraceEvent } from "../trace/liveTraceEvents.js";
 import { createCorrectionSessionHttpServer } from "./createCorrectionSessionHttpServer.js";
 
 describe("createCorrectionSessionHttpServer", () => {
@@ -123,6 +124,14 @@ describe("createCorrectionSessionHttpServer", () => {
             emitted: ["finalResult"],
           },
         },
+        inspector: {
+          source: {
+            type: "live-session",
+            sessionId: "session-view-model",
+            mode: "runtime",
+            provider: "deterministic-mock",
+          },
+        },
       },
       rawStateExposed: false,
     });
@@ -206,6 +215,63 @@ describe("createCorrectionSessionHttpServer", () => {
       },
     });
   });
+
+  it("streams live runtime events through a local SSE endpoint", async () => {
+    const server = createCorrectionSessionHttpServer({
+      createSessionId: () => "session-events",
+    });
+    servers.push(server);
+    const baseUrl = await listen(server);
+    const abortController = new AbortController();
+
+    await fetch(`${baseUrl}/api/sessions`, { method: "POST" });
+    const eventResponse = await fetch(
+      `${baseUrl}/api/sessions/session-events/events`,
+      { signal: abortController.signal },
+    );
+    const eventReader = readServerSentEvents(eventResponse);
+
+    const invocationResponse = await postJson(
+      `${baseUrl}/api/sessions/session-events/invocations`,
+      { draft: "Signal-kernel coordinates async correction branches." },
+    );
+    const streamedEvents = await eventReader.until((events) =>
+      events.some(
+        (event) =>
+          event.event.scope === "effect" &&
+          event.event.type === "emitted" &&
+          event.event.label === "finalResult",
+      ),
+    );
+    abortController.abort();
+
+    expect({
+      eventStatus: eventResponse.status,
+      eventContentType: eventResponse.headers.get("content-type"),
+      invocationStatus: invocationResponse.status,
+      sequences: streamedEvents.map((event) => event.sequence),
+      receiveStarted: streamedEvents.some(
+        (event) =>
+          event.event.scope === "runtime" &&
+          event.event.type === "started" &&
+          event.event.label === "receive" &&
+          event.event.metadata?.receiveEpoch === 1,
+      ),
+      finalResultEmitted: streamedEvents.some(
+        (event) =>
+          event.event.scope === "effect" &&
+          event.event.type === "emitted" &&
+          event.event.label === "finalResult",
+      ),
+    }).toEqual({
+      eventStatus: 200,
+      eventContentType: "text/event-stream; charset=utf-8",
+      invocationStatus: 200,
+      sequences: streamedEvents.map((_, index) => index + 1),
+      receiveStarted: true,
+      finalResultEmitted: true,
+    });
+  });
 });
 
 function postJson(url: string, body: unknown) {
@@ -231,4 +297,49 @@ async function closeServer(server: Server): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()));
   });
+}
+
+function readServerSentEvents(response: Response) {
+  if (!response.body) {
+    throw new Error("SSE response did not include a readable body");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const events: LiveTraceEvent[] = [];
+
+  async function readNext() {
+    const result = await reader.read();
+    if (result.done) return;
+
+    buffer += decoder.decode(result.value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() ?? "";
+
+    for (const chunk of chunks) {
+      const dataLines = chunk
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice("data:".length).trimStart());
+
+      if (dataLines.length > 0) {
+        events.push(JSON.parse(dataLines.join("\n")) as LiveTraceEvent);
+      }
+    }
+  }
+
+  return {
+    async until(matches: (events: LiveTraceEvent[]) => boolean) {
+      const deadline = Date.now() + 2_000;
+      while (!matches(events)) {
+        if (Date.now() > deadline) {
+          throw new Error("Timed out waiting for SSE events");
+        }
+        await readNext();
+      }
+
+      return events;
+    },
+  };
 }

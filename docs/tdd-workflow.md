@@ -1476,6 +1476,158 @@ Suggested TDD slices:
 5. Task 33e: expose corroboration separately in trace, scorecard, and report data.
 6. Task 33f: add an optional manual multi-model evaluation path.
 
+### 34. Live Runtime Event Stream
+
+Scenario:
+
+```txt
+Given a persistent correction session is running
+When draft updates trigger async runtime work
+Then a developer can observe ordered runtime events before the final artifact bundle is written
+```
+
+Why this follows the CLI work:
+
+```txt
+The CLI already proves the settled output.
+The next proof is that the same runtime can explain in-flight work without waiting for process exit.
+```
+
+Acceptance:
+
+- the event stream uses the existing trace vocabulary: `started`, `changed`, `stale`, `pending`, `resolved`, `skipped`, `emitted`, and `completed`.
+- every streamed event has a stable receive identifier and monotonically increasing sequence number.
+- streamed events and final `trace.json` describe the same work; the live path must not invent a second tracing model.
+- subscribers can attach and detach without owning the runtime.
+- session disposal closes subscriptions and prevents cross-session event leakage.
+- event payloads are serialized data only; promises, signal objects, and runtime instances are never exposed.
+- the first version is local-only and works in mock mode without LangSmith, a database, or cloud infrastructure.
+
+Suggested TDD slices:
+
+1. Task 34a: define a live event stream contract and a failing runtime/session test.
+2. Task 34b: publish ordered events while preserving the existing settled trace output.
+3. Task 34c: add subscription cleanup and session-isolation tests.
+4. Task 34d: expose a local SSE endpoint from the existing web server.
+5. Task 34e: verify the UI can show pending work before the final result arrives.
+6. Task 34f: document the relationship between live events, `trace.json`, and artifact bundles.
+
+### 35. Developer Inspector View Model
+
+Scenario:
+
+```txt
+Given a live session or saved artifact bundle exists
+When a developer opens the inspector
+Then they can understand recomputation, reuse, stale protection, claims, and evidence boundaries
+```
+
+Display boundary:
+
+```txt
+User-facing correction result -> visible by default
+Claims, intent, trace, and verifier evidence -> developer inspector data
+```
+
+Acceptance:
+
+- one view-model contract can be built from either a live session snapshot or a saved artifact bundle.
+- user-facing result data remains separate from developer-only runtime diagnostics.
+- claims and inferred intent are treated as internal runtime data unless explicitly shown in an inspector panel.
+- recomputation, reuse, superseded work, and emitted outputs are grouped by receive.
+- verifier corroboration and reactive recomputation remain separate sections.
+- unsupported or missing artifacts produce clear inspector warnings instead of broken UI.
+- the inspector remains framework-neutral and does not introduce a React or Vue adapter.
+- tests assert visible meaning and stable view-model fields, not private HTML structure.
+
+Suggested TDD slices:
+
+1. Task 35a: define the inspector view-model contract from an artifact bundle.
+2. Task 35b: add receive-level execution groups for recomputed, reused, skipped, and superseded work.
+3. Task 35c: add developer-only claims, intent, and evidence sections.
+4. Task 35d: support live-session snapshots through the same view-model contract.
+5. Task 35e: render the inspector in the local web demo without framework bindings.
+6. Task 35f: add browser tests for empty, successful, and partially missing inspector data.
+
+### 36. Headless Correction Session SDK
+
+Scenario:
+
+```txt
+Given CLI, web, and LangGraph integrations all need the same runtime behavior
+When they create and invoke a correction session
+Then they share one headless API instead of reimplementing session orchestration
+```
+
+Proposed boundary:
+
+```ts
+session.receive(input)
+session.runUntilSettled()
+session.emit()
+session.snapshot()
+session.subscribe(listener)
+session.reset()
+session.dispose()
+```
+
+Acceptance:
+
+- the SDK has no dependency on HTTP, DOM, React, Vue, or CLI argument parsing.
+- CLI and web code call the SDK instead of reaching into runtime internals.
+- provider/model selection is injected through options, not read from globals inside the SDK.
+- snapshots contain serialized state, trace, and artifact references only.
+- event subscription is optional and does not change settled behavior.
+- reset and dispose behavior is deterministic and tested.
+- errors preserve enough context for CLI messages, web API responses, and future LangGraph nodes.
+- the SDK remains local-first and mock-first.
+
+Suggested TDD slices:
+
+1. Task 36a: define the headless session interface and adapt the current runtime behind it.
+2. Task 36b: migrate the CLI demo path to the session SDK.
+3. Task 36c: migrate the local web server to the same SDK.
+4. Task 36d: expose snapshot and artifact-bundle helpers through the SDK boundary.
+5. Task 36e: add reset, dispose, and subscription behavior tests.
+6. Task 36f: document how CLI, web, and LangGraph should depend on the SDK.
+
+### 37. Durable LangGraph Session Boundary
+
+Scenario:
+
+```txt
+Given a LangGraph workflow may checkpoint or resume graph state
+When the correction node is restored
+Then serializable graph state can recreate the runtime without storing live signal objects
+```
+
+Architecture rule:
+
+```txt
+LangGraph checkpoint state stores serializable facts.
+signal-kernel runtime instances are rebuilt, not persisted.
+```
+
+Acceptance:
+
+- checkpoint state has an explicit schema version.
+- graph state never contains promises, functions, signals, effects, or runtime instances.
+- restoring from checkpoint recreates a correction session with equivalent observable output.
+- invalidation after restore recomputes only the branches required by the new input.
+- stale async work from before checkpoint cannot overwrite restored-session results.
+- runtime cache behavior is documented as an optimization, not durable truth.
+- tests cover restore, second receive after restore, and two isolated restored sessions.
+- limitations around long-running in-flight work are explicit before any production claim.
+
+Suggested TDD slices:
+
+1. Task 37a: define the serializable checkpoint contract and validation tests.
+2. Task 37b: restore a mock correction session from checkpoint and reproduce the final result.
+3. Task 37c: verify second receive after restore preserves selective recomputation behavior.
+4. Task 37d: ensure stale pre-restore async work cannot emit into the restored session.
+5. Task 37e: connect the checkpoint contract to the LangGraph session wrapper.
+6. Task 37f: document durable state boundaries, limitations, and future LangGraph production work.
+
 ## How To Ask The Agent
 
 Good request:

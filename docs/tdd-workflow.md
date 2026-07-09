@@ -1727,6 +1727,108 @@ Suggested TDD slices:
 5. Task 39e: add a persistent-session example or test showing how repeated invocations reuse `createCorrectionGraphSession()` without module-level hidden state.
 6. Task 39f: document the LangGraph reference integration and the role split between LangGraph, the public SDK, and signal-kernel.
 
+### 40. Reference Demo Narrative
+
+Scenario:
+
+```txt
+Given the CLI, artifact bundle, public SDK examples, and LangGraph reference examples are all available
+When a developer opens the repository for the first time
+Then they can follow one local-first guided path that explains what to run, what to inspect, and what each artifact proves
+```
+
+Why this follows Task 39:
+
+```txt
+Task 38 made the public SDK boundary explicit.
+Task 39 showed how an external LangGraph workflow can use that boundary.
+Task 40 turns those pieces into a coherent demo path instead of leaving them as disconnected examples.
+```
+
+Narrative direction:
+
+```txt
+1. Run deterministic setup and tests.
+2. Run CLI artifact generation.
+3. Inspect result/state/trace/manifest/report artifacts.
+4. Run or read the public SDK examples.
+5. Run or read the LangGraph reference workflow examples.
+6. Understand the local-first, mock-first boundary before optional Ollama or future production integrations.
+```
+
+Acceptance:
+
+- README has a guided demo path that a new developer can follow without Ollama, LangSmith, a database, or an API key.
+- the path names the exact commands to run and the artifacts to inspect.
+- the narrative connects CLI artifacts, public SDK examples, LangGraph reference examples, and static evidence reports.
+- the narrative explains why the demo starts with deterministic mock behavior before optional local LLM evaluation.
+- docs avoid implying that this is already a production package, production checkpointing layer, or semantic quality benchmark.
+- tests or static checks prevent the documented demo path from depending on internal source imports.
+- the Chinese article mirrors the same story so it can become a publishable technical article outline.
+
+Suggested TDD slices:
+
+1. Task 40a: add a failing docs test that requires README to include a guided local demo path.
+2. Task 40b: document the deterministic command sequence and expected `.output` artifacts.
+3. Task 40c: add a docs/static check that the demo narrative links to public SDK and LangGraph reference examples.
+4. Task 40d: document what each artifact proves and what it does not prove.
+5. Task 40e: mirror the guided demo narrative in the Chinese article.
+6. Task 40f: add a final docs guard that keeps the demo path local-first and mock-first by default.
+
+### 41. Evidence And Benchmark Story
+
+Scenario:
+
+```txt
+Given the project can produce traces, execution summaries, savings reports, comparison reports, inspector data, and reference workflow examples
+When the project claims value
+Then the claim is grounded in explicit evidence categories and avoids overclaiming latency, cost, factual accuracy, or general LLM quality
+```
+
+Why this follows Task 40:
+
+```txt
+Task 40 tells the developer how to run the demo.
+Task 41 tells them how to interpret the evidence without turning a local deterministic demo into an exaggerated benchmark claim.
+```
+
+Evidence direction:
+
+```txt
+Reactive correction graph value is framed as:
+- fewer unnecessary recomputations for fixed transitions.
+- explicit receive/session reuse evidence.
+- serializable LangGraph state safety.
+- public SDK boundary discipline.
+- reproducible artifact bundles and reports.
+
+It is not framed as:
+- a general latency benchmark.
+- a token/cost benchmark.
+- a factual correctness benchmark.
+- a LangGraph replacement claim.
+- a LangSmith replacement claim.
+```
+
+Acceptance:
+
+- docs define separate evidence categories for recomputation savings, session reuse, state safety, public boundary safety, and report reproducibility.
+- each category maps to concrete artifacts or tests, such as `trace.json`, `execution-summary.json`, `savings.json`, `comparison.json`, `report.html`, SDK examples, and reference workflow tests.
+- benchmark language is scoped to deterministic fixed transitions unless a future benchmark supplies broader fixtures and methodology.
+- docs clearly separate intentional verification/corroboration from accidental reactive recomputation.
+- docs explain why repeated fact checks may be useful but do not automatically prove factual correctness.
+- docs preserve limitations around latency, token use, cost, provider quality, semantic correctness, production durability, and distributed execution.
+- README and Chinese article provide a concise value statement: the project reduces wasted recomputation inside agent workflow nodes and makes that behavior observable.
+
+Suggested TDD slices:
+
+1. Task 41a: add a failing docs test requiring named evidence categories and their artifact sources.
+2. Task 41b: document recomputation savings and receive/session reuse using existing comparison artifacts.
+3. Task 41c: document state safety and public-boundary safety using reference workflow tests.
+4. Task 41d: document quality boundaries: what traces, repeated verification, and local LLM evaluation cannot prove.
+5. Task 41e: add a concise README value statement focused on reducing wasted recomputation inside agent workflow nodes.
+6. Task 41f: mirror the evidence and limitation story in the Chinese article for future technical publishing.
+
 ## How To Ask The Agent
 
 Good request:

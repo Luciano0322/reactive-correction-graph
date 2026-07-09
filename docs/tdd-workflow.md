@@ -1679,6 +1679,54 @@ Suggested TDD slices:
 5. Task 38e: add a LangGraph checkpoint usage example that imports only from the public API.
 6. Task 38f: document the public SDK surface, private internals, and current non-goals.
 
+### 39. LangGraph Reference Integration
+
+Scenario:
+
+```txt
+Given the public SDK surface exists
+When an external LangGraph app wants to use the correction runtime as one workflow node
+Then it can follow a reference integration that imports only the public SDK and keeps LangGraph state serializable
+```
+
+Why this follows Task 38:
+
+```txt
+Task 38 proved the package root can expose the supported SDK boundary.
+Task 39 uses that public boundary to show how another LangGraph workflow should integrate the correction runtime.
+This is not about adding a bigger built-in LangGraph demo; it is about documenting and testing the reference integration shape.
+```
+
+Reference integration direction:
+
+```ts
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import {
+  createCorrectionGraphSession,
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+} from "reactive-correction-graph";
+```
+
+Acceptance:
+
+- a reference workflow example lives outside the internal graph implementation and imports only `@langchain/langgraph` plus `reactive-correction-graph`.
+- the reference workflow treats the correction runtime as a LangGraph node dependency, not as a set of internal runtime files.
+- examples and tests prevent direct imports from `src/runtime/*`, `src/graph/*`, `src/session/*`, and other implementation paths.
+- LangGraph state used by the reference workflow remains JSON-compatible and does not store runtime instances, sessions, signals, promises, functions, subscriptions, or AbortController values.
+- repeated workflow invocations demonstrate the right ownership boundary: persistent behavior belongs to `createCorrectionGraphSession()` or an explicit session wrapper, not to accidental module-level state.
+- checkpoint examples stay local-first and mock-first; they do not require LangSmith, a database, Ollama, or a real LangGraph checkpointer.
+- docs explain the split clearly: LangGraph owns orchestration and checkpoint policy, while signal-kernel owns node-local reactive invalidation and async settling.
+
+Suggested TDD slices:
+
+1. Task 39a: add a failing reference workflow test that imports a future `langGraphReferenceWorkflow` example.
+2. Task 39b: implement the reference workflow example using only `@langchain/langgraph` and the public SDK package root.
+3. Task 39c: add a public-import guard test that rejects internal source-path imports in reference examples.
+4. Task 39d: add a state-shape test proving the reference workflow checkpoint state is JSON-compatible and excludes live runtime/session values.
+5. Task 39e: add a persistent-session example or test showing how repeated invocations reuse `createCorrectionGraphSession()` without module-level hidden state.
+6. Task 39f: document the LangGraph reference integration and the role split between LangGraph, the public SDK, and signal-kernel.
+
 ## How To Ask The Agent
 
 Good request:

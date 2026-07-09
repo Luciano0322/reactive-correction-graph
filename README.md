@@ -9,6 +9,44 @@ See [Durable LangGraph Session Boundary](./docs/durable-langgraph-session.md) fo
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
 See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama demo path.
 
+## Public SDK Surface
+
+This repository is currently a private reference implementation. The package
+surface is used to validate future SDK boundaries; it is not published to npm
+yet and should not be treated as a stable package release.
+
+Supported examples import only from the package root:
+
+```ts
+import {
+  createCorrectionSession,
+  createCorrectionGraphSession,
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+  restoreCorrectionSessionFromCheckpoint,
+  createCorrectionSessionArtifactBundle,
+} from "reactive-correction-graph";
+```
+
+The representative examples are:
+
+- `src/examples/minimalSdkUsage.ts`
+- `src/examples/langGraphCheckpointUsage.ts`
+
+Private internals remain private. Do not import from `src/runtime/*`,
+`src/graph/*`, `src/session/*`, or other implementation paths in docs,
+examples, or downstream experiments. If a capability is meant to be reused, it
+should first be promoted through `src/index.ts`.
+
+Non-goals:
+
+- This is not a React or Vue adapter.
+- This is not a production LangGraph checkpointer.
+- This is not a LangSmith replacement.
+- This does not claim the current repo should be published as the final npm
+  package; a future package can be extracted after the reference demo proves
+  the boundary is useful.
+
 ## Architecture
 
 ```mermaid

@@ -8,6 +8,9 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "types": ["node"],
+    "paths": {
+      "reactive-correction-graph": ["./src/index.ts"]
+    },
     "rootDir": "src",
     "outDir": "dist"
   },

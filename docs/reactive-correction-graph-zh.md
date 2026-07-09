@@ -1490,3 +1490,54 @@ runtime cache、live async work 或 process-local handles 誤包裝成 checkpoin
 > reactive-correction-graph 展示了如何在 LangGraph workflow 中嵌入一個 signal-kernel runtime，
 > 用細粒度 invalidation 減少不必要的 agent work，並透過 trace、artifact、inspector、checkpoint
 > contract 讓這個行為可以被驗證、被重現、被解釋。
+
+## Task 38：Public SDK Surface
+
+Task 38 的重點不是把這個 repo 立刻發成套件，而是把目前已經驗證過的邊界整理成
+public SDK surface。這個 repo 目前是 private reference implementation，不是現在就要
+publish 到 npm；`package.json` 裡的 `exports`、`types` 和 `src/index.ts` 是用來驗證未來
+SDK 邊界，而不是宣告這個 repo 已經是正式發佈版。
+
+目前文件與 examples 支援的匯入方式只有 package root：
+
+```ts
+import {
+  createCorrectionSession,
+  createCorrectionGraphSession,
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+  restoreCorrectionSessionFromCheckpoint,
+  createCorrectionSessionArtifactBundle,
+} from "reactive-correction-graph";
+```
+
+Task 38a 到 38c 先把 package root 的 contract 建起來：測試會直接從
+`reactive-correction-graph` 匯入，`src/index.ts` 只 export 穩定的 session、graph session、
+checkpoint、runtime 與 correction schema types。接著 package metadata 指向 built entrypoint：
+`dist/index.js` 與 `dist/index.d.ts`，並用 `tsconfig.build.json` 驗證 declaration build。
+
+Task 38d 補上最小 SDK example：`src/examples/minimalSdkUsage.ts`。它示範外部使用者如何建立
+`createCorrectionSession()`、送入 draft / intent / style guide、等待 settled、取出 final result，
+再產生 artifact bundle。這個 example 的價值是把「CLI 以外也能用同一套 session API」寫成可執行
+範例，而不是只放一段 README code。
+
+Task 38e 補上 LangGraph checkpoint example：`src/examples/langGraphCheckpointUsage.ts`。它示範
+`createCorrectionGraphSession()` 如何產生 checkpoint、序列化後再透過
+`parseCorrectionGraphCheckpoint()` 與 `createCorrectionGraphSession({ checkpoint })` 還原 session。
+第二次加入 style guide 時，測試會確認 style / rewrite 重跑，但 fact check 不會被不必要地重跑。
+
+Private internals 的規則也在這一步變得明確：不要從 `src/runtime/*` 匯入，不要從 `src/graph/*`、
+`src/session/*` 或其他 implementation path 直接匯入。只要某個能力要被外部復用，就應該先經過
+`src/index.ts` 成為 public surface。這可以避免 demo 越做越大之後，下游文件或範例不小心綁死內部結構。
+
+Non-goals 也要明講：
+
+- 這不是 React 或 Vue adapter。
+- 這不是 production LangGraph checkpointer。
+- 這不是 LangSmith replacement。
+- 這不是現在就要 publish 到 npm 的正式套件。
+- 這不是要把 CLI demo、web demo、LangGraph 節點、report generator 全部混成一個大框架。
+
+換句話說，Task 38 的價值是把「未來可以抽成 npm package 的邊界」先在 reference implementation
+裡面驗證清楚。等 CLI、LangGraph session、checkpoint、artifact、inspector 與 benchmark story
+都成熟後，才比較適合另開 package project，把真正穩定的 public API 抽出去。

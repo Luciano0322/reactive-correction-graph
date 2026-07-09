@@ -1541,3 +1541,78 @@ Non-goals 也要明講：
 換句話說，Task 38 的價值是把「未來可以抽成 npm package 的邊界」先在 reference implementation
 裡面驗證清楚。等 CLI、LangGraph session、checkpoint、artifact、inspector 與 benchmark story
 都成熟後，才比較適合另開 package project，把真正穩定的 public API 抽出去。
+
+## Task 39：LangGraph Reference Integration
+
+Task 39 的方向不是再做一個更大的 LangGraph demo，而是把「外部 LangGraph app 應該怎麼整合
+correction runtime」整理成 reference integration。這一步承接 Task 38 的 public SDK surface：
+example 不應該碰 `src/runtime/*`、`src/graph/*` 或 `src/session/*`，而是只透過
+`reactive-correction-graph` package root 使用公開 API。
+
+這裡的角色分工要講清楚：
+
+```txt
+LangGraph 負責 orchestration 與 checkpoint policy。
+public SDK surface 負責對外提供 session / graph session / checkpoint contract。
+signal-kernel 負責 node-local reactive invalidation 與 async settling。
+```
+
+Task 39a 與 39b 建立 `src/examples/langGraphReferenceWorkflow.ts`。這個 example 自己用
+`@langchain/langgraph` 建立 `StateGraph`，節點分成：
+
+```txt
+prepareReferenceInput
+  -> runCorrectionNode
+  -> finalizeReferenceOutput
+```
+
+`runCorrectionNode` 裡面不直接操作 runtime internals，而是用 `createCorrectionSession()` 執行
+correction flow。這代表外部 LangGraph workflow 可以把 correction runtime 當成一個普通 node
+dependency，而不是把 signal、computed、effect 或 async resource 全部塞進 graph state。
+
+Task 39c 補上 public-import guard。它會掃描 reference examples，確認只允許：
+
+```txt
+@langchain/langgraph
+reactive-correction-graph
+```
+
+也就是不要從相對 internal source path 匯入，不要從 `reactive-correction-graph/...` subpath 匯入。
+如果未來文件或範例開始偷用內部檔案，測試會直接擋下來。
+
+Task 39d 補上 state-shape guard。它直接跑 reference workflow，確認 workflow state 可以
+`JSON.stringify` / `JSON.parse` round-trip，而且不要把 session 或 runtime 存進 LangGraph state。
+同時也禁止 signal、computed、effect、promise、subscription、AbortController 這類 live handle
+進入 graph state。這點很重要，因為 LangGraph state 應該保留可序列化的 workflow facts，
+runtime instance 則是 process-local execution detail。
+
+Task 39e 則補上 `src/examples/langGraphPersistentSessionWorkflow.ts`，示範 repeated invocation
+應該怎麼保留 reactive runtime 的 settled cache。做法不是依賴 module-level hidden state，而是在
+workflow factory 裡明確建立 `createCorrectionGraphSession()`：
+
+```ts
+export function createPersistentLangGraphReferenceWorkflow() {
+  const correctionSession = createCorrectionGraphSession();
+  // build StateGraph...
+}
+```
+
+同一個 workflow instance 第二次 style-only invoke 時，receive epoch 會從 `[1]` 變成 `[1, 2]`，
+並且不重跑 fact check，只重跑 style review 與 rewrite。另一個 workflow factory 建出來的 instance
+則從 `[1]` 開始，證明這不是跨 module 偷藏狀態。
+
+Task 39f 最後把這個 reference integration 寫進 README 與中文文章。這段文件的重點是：
+
+- LangGraph 負責外層 workflow orchestration。
+- signal-kernel 負責單一 node 內部的 reactive invalidation。
+- public SDK surface 是兩者之間的整合邊界。
+- 不要把 session 或 runtime 存進 LangGraph state。
+- 不要依賴 module-level hidden state。
+- reference examples 維持 local-first、mock-first。
+- 這條路徑不需要 LangSmith、資料庫、Ollama 或 production LangGraph checkpointer。
+
+因此 Task 39 完成後，專案能更準確地對外說明：
+
+> reactive-correction-graph 不是要取代 LangGraph，而是示範如何在 LangGraph workflow 的單一 node
+> 裡嵌入 reactive runtime。LangGraph 管流程，signal-kernel 管 node 內部細粒度重算，public SDK
+> 管兩者之間可重用、可測試、可文件化的整合邊界。

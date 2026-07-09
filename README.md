@@ -47,6 +47,41 @@ Non-goals:
   package; a future package can be extracted after the reference demo proves
   the boundary is useful.
 
+## LangGraph Reference Integration
+
+Task 39 keeps the LangGraph story focused on reference integration instead of
+adding another built-in demo mode. LangGraph owns orchestration and checkpoint
+policy, while signal-kernel owns node-local reactive invalidation and async
+settling. The public SDK is the boundary between those layers.
+
+Role split:
+
+- LangGraph owns orchestration and checkpoint policy.
+- signal-kernel owns node-local reactive invalidation and async settling.
+
+Reference examples:
+
+- `src/examples/langGraphReferenceWorkflow.ts` shows an external `StateGraph`
+  with its own prepare, correction, and finalize nodes. The correction node uses
+  `createCorrectionSession()` from the package root.
+- `src/examples/langGraphPersistentSessionWorkflow.ts` shows repeated
+  invocations through an explicit `createCorrectionGraphSession()` owned by a
+  workflow factory. A second style-only invocation reuses fact-check work, while
+  a separate workflow factory starts from a fresh session.
+
+Rules for downstream integrations:
+
+- Do not import from internal source paths; use `reactive-correction-graph`.
+- Do not store sessions or runtimes in LangGraph state.
+- Keep graph state JSON-compatible so checkpointing can remain a policy choice
+  outside the runtime.
+- Own persistent behavior explicitly through a session wrapper or workflow
+  factory, not through module-level hidden state.
+- Keep reference paths local-first and mock-first; this does not require
+  LangSmith, a database, Ollama, or a production LangGraph checkpointer.
+
+This path does not require LangSmith.
+
 ## Architecture
 
 ```mermaid

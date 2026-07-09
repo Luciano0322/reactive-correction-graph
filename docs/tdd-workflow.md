@@ -1628,6 +1628,57 @@ Suggested TDD slices:
 5. Task 37e: connect the checkpoint contract to the LangGraph session wrapper.
 6. Task 37f: document durable state boundaries, limitations, and future LangGraph production work.
 
+### 38. Public SDK Surface
+
+Scenario:
+
+```txt
+Given the runtime, session, graph, checkpoint, artifact, and inspector contracts are stable enough for local demos
+When another TypeScript project wants to use this package
+Then it imports supported APIs from one public SDK surface instead of reaching into internal source paths
+```
+
+Why this follows Task 37:
+
+```txt
+Task 34-37 stabilized observability, session lifecycle, and checkpoint boundaries.
+Task 38 turns those boundaries into an explicit public package surface.
+```
+
+Public API direction:
+
+```ts
+import {
+  createCorrectionSession,
+  createCorrectionGraphSession,
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+  restoreCorrectionSessionFromCheckpoint,
+  createCorrectionSessionArtifactBundle,
+} from "reactive-correction-graph";
+```
+
+Acceptance:
+
+- the package has a single public entrypoint, such as `src/index.ts`.
+- public exports include the stable SDK contracts for session, graph session, checkpoint, artifact bundle, and inspector view-model usage.
+- public type exports are available without forcing consumers to import private implementation files.
+- package `exports` points to the built public entrypoint, not individual internal modules.
+- tests prove representative SDK imports compile and run through the public entrypoint.
+- tests or static checks prevent accidental reliance on internal source paths for documented examples.
+- examples stay local-first and mock-first; they do not require Ollama, LangSmith, a database, or a real LangGraph checkpointer.
+- unstable internals remain unexported unless there is a clear consumer-facing reason.
+- README and Chinese article explain the supported import surface and its limits.
+
+Suggested TDD slices:
+
+1. Task 38a: add a failing public-entrypoint test that imports session and checkpoint APIs from the package root.
+2. Task 38b: create `src/index.ts` and export the stable runtime/session/graph/checkpoint contracts.
+3. Task 38c: add package `exports` and declaration build checks for the public entrypoint.
+4. Task 38d: add a minimal SDK usage example that runs through the public API only.
+5. Task 38e: add a LangGraph checkpoint usage example that imports only from the public API.
+6. Task 38f: document the public SDK surface, private internals, and current non-goals.
+
 ## How To Ask The Agent
 
 Good request:

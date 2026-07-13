@@ -82,6 +82,49 @@ Rules for downstream integrations:
 
 This path does not require LangSmith.
 
+## Guided Local Demo Path
+
+Use this local-first, mock-first path when evaluating the reference demo from a
+fresh checkout:
+
+- does not require Ollama
+- does not require LangSmith
+- does not require a database
+- does not require an API key
+
+The default guided path uses deterministic mock behavior only.
+Optional integrations stay outside this guided path.
+
+Run the deterministic command sequence:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm run demo:compare
+pnpm run demo:report
+```
+
+The expected `.output` artifacts are:
+
+| Artifact | What it proves | What it does not prove |
+| --- | --- | --- |
+| `.output/result.md` | A representative correction result was serialized | Factual correctness or writing quality |
+| `.output/state.json` | The final settled runtime state was captured | Production persistence or checkpoint durability |
+| `.output/trace.json` | Runtime lifecycle events were recorded for one completed run | Latency, concurrency, or production scalability |
+| `.output/manifest.json` | Compatible serialized artifacts can be indexed as a bundle | That every optional artifact is always present |
+| `.output/report.html` | The bundle can render an offline evidence report | General LLM quality or semantic benchmark accuracy |
+
+This path is intentionally deterministic. It proves the CLI, runtime session,
+artifact bundle, public SDK boundary, and report generation can work together
+before optional Ollama evaluation or future production integrations are added.
+
+Then read the public SDK examples and LangGraph reference examples:
+
+- [src/examples/minimalSdkUsage.ts](./src/examples/minimalSdkUsage.ts)
+- [src/examples/langGraphReferenceWorkflow.ts](./src/examples/langGraphReferenceWorkflow.ts)
+- [src/examples/langGraphPersistentSessionWorkflow.ts](./src/examples/langGraphPersistentSessionWorkflow.ts)
+
 ## Architecture
 
 ```mermaid

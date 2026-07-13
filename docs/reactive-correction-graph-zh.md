@@ -1616,3 +1616,65 @@ Task 39f 最後把這個 reference integration 寫進 README 與中文文章。�
 > reactive-correction-graph 不是要取代 LangGraph，而是示範如何在 LangGraph workflow 的單一 node
 > 裡嵌入 reactive runtime。LangGraph 管流程，signal-kernel 管 node 內部細粒度重算，public SDK
 > 管兩者之間可重用、可測試、可文件化的整合邊界。
+
+## Task 40：Reference Demo Narrative
+
+Task 40 的目標是把前面累積的 CLI、artifact bundle、public SDK examples、LangGraph reference examples
+整理成一條新開發者可以照著走的 demo path。這一步不是再新增 runtime 能力，而是把「要怎麼驗證這個
+專案目前做到了什麼」整理成可閱讀、可重現、也不會過度宣稱的敘事。
+
+這條路徑維持 local-first、mock-first：
+
+- 不需要 Ollama
+- 不需要 LangSmith
+- 不需要資料庫
+- 不需要 API key
+
+預設 guided path 只使用 deterministic mock provider。optional integrations 不屬於這條預設路徑。
+
+建議的 deterministic command sequence 是：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm run demo:compare
+pnpm run demo:report
+```
+
+這組指令的重點是先用 deterministic mock provider 建立穩定 baseline。它讓我們能先驗證 runtime
+settling、selective recomputation、artifact bundle、report generation 與 public SDK boundary，
+再把 Ollama 或其他真實模型接進來。換句話說，mock-first 不是為了逃避真實模型，而是為了先把系統
+契約釘穩。
+
+產出的 `.output` artifacts 可以這樣解讀：
+
+| Artifact | 能證明 | 不能證明 |
+| --- | --- | --- |
+| `.output/result.md` | correction result 被序列化 | factual correctness 或 writing quality |
+| `.output/state.json` | settled runtime state 被保存 | production persistence 或 checkpoint durability |
+| `.output/trace.json` | runtime lifecycle events 被記錄 | latency、concurrency 或 production scalability |
+| `.output/manifest.json` | serialized artifacts 可以被 bundle index 管理 | 每個 optional artifact 永遠存在 |
+| `.output/report.html` | bundle 可以產生 offline evidence report | general LLM quality 或 semantic benchmark accuracy |
+
+這個表格很重要，因為它把 demo 的價值和邊界放在同一個地方。這個專案目前可以證明的是：在固定輸入與
+固定 transition 下，reactive session 能產生可檢查的 trace、state、comparison、savings 與 report。
+它不能直接證明任意 LLM 輸出都是正確的，也不能直接證明 production-grade persistence、distributed
+checkpointing、latency benchmark 或通用語意品質。
+
+看完 artifacts 後，接著應該讀 public SDK examples 和 LangGraph reference examples：
+
+- `src/examples/minimalSdkUsage.ts`
+- `src/examples/langGraphReferenceWorkflow.ts`
+- `src/examples/langGraphPersistentSessionWorkflow.ts`
+
+這三個 example 把 demo path 往外部使用場景推進一步。`minimalSdkUsage.ts` 示範 CLI 以外如何透過
+package root 建立 session 並產生結果；`langGraphReferenceWorkflow.ts` 示範外部 LangGraph workflow
+如何把 correction runtime 當成一個 node dependency；`langGraphPersistentSessionWorkflow.ts` 則示範
+如何用明確的 graph session wrapper 保留 settled cache，而不是把 runtime 偷塞進 graph state 或 module-level
+hidden state。
+
+所以 Task 40 目前可以整理成一句話：
+
+> 先用 local-first、mock-first 的 deterministic path 產出 artifacts，再用 public SDK 和 LangGraph
+> reference examples 說明這些 artifacts 對應到哪個整合邊界；同時明確說清楚它能證明什麼，以及不能證明什麼。

@@ -1490,3 +1490,262 @@ runtime cache、live async work 或 process-local handles 誤包裝成 checkpoin
 > reactive-correction-graph 展示了如何在 LangGraph workflow 中嵌入一個 signal-kernel runtime，
 > 用細粒度 invalidation 減少不必要的 agent work，並透過 trace、artifact、inspector、checkpoint
 > contract 讓這個行為可以被驗證、被重現、被解釋。
+
+## Task 38：Public SDK Surface
+
+Task 38 的重點不是把這個 repo 立刻發成套件，而是把目前已經驗證過的邊界整理成
+public SDK surface。這個 repo 目前是 private reference implementation，不是現在就要
+publish 到 npm；`package.json` 裡的 `exports`、`types` 和 `src/index.ts` 是用來驗證未來
+SDK 邊界，而不是宣告這個 repo 已經是正式發佈版。
+
+目前文件與 examples 支援的匯入方式只有 package root：
+
+```ts
+import {
+  createCorrectionSession,
+  createCorrectionGraphSession,
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+  restoreCorrectionSessionFromCheckpoint,
+  createCorrectionSessionArtifactBundle,
+} from "reactive-correction-graph";
+```
+
+Task 38a 到 38c 先把 package root 的 contract 建起來：測試會直接從
+`reactive-correction-graph` 匯入，`src/index.ts` 只 export 穩定的 session、graph session、
+checkpoint、runtime 與 correction schema types。接著 package metadata 指向 built entrypoint：
+`dist/index.js` 與 `dist/index.d.ts`，並用 `tsconfig.build.json` 驗證 declaration build。
+
+Task 38d 補上最小 SDK example：`src/examples/minimalSdkUsage.ts`。它示範外部使用者如何建立
+`createCorrectionSession()`、送入 draft / intent / style guide、等待 settled、取出 final result，
+再產生 artifact bundle。這個 example 的價值是把「CLI 以外也能用同一套 session API」寫成可執行
+範例，而不是只放一段 README code。
+
+Task 38e 補上 LangGraph checkpoint example：`src/examples/langGraphCheckpointUsage.ts`。它示範
+`createCorrectionGraphSession()` 如何產生 checkpoint、序列化後再透過
+`parseCorrectionGraphCheckpoint()` 與 `createCorrectionGraphSession({ checkpoint })` 還原 session。
+第二次加入 style guide 時，測試會確認 style / rewrite 重跑，但 fact check 不會被不必要地重跑。
+
+Private internals 的規則也在這一步變得明確：不要從 `src/runtime/*` 匯入，不要從 `src/graph/*`、
+`src/session/*` 或其他 implementation path 直接匯入。只要某個能力要被外部復用，就應該先經過
+`src/index.ts` 成為 public surface。這可以避免 demo 越做越大之後，下游文件或範例不小心綁死內部結構。
+
+Non-goals 也要明講：
+
+- 這不是 React 或 Vue adapter。
+- 這不是 production LangGraph checkpointer。
+- 這不是 LangSmith replacement。
+- 這不是現在就要 publish 到 npm 的正式套件。
+- 這不是要把 CLI demo、web demo、LangGraph 節點、report generator 全部混成一個大框架。
+
+換句話說，Task 38 的價值是把「未來可以抽成 npm package 的邊界」先在 reference implementation
+裡面驗證清楚。等 CLI、LangGraph session、checkpoint、artifact、inspector 與 benchmark story
+都成熟後，才比較適合另開 package project，把真正穩定的 public API 抽出去。
+
+## Task 39：LangGraph Reference Integration
+
+Task 39 的方向不是再做一個更大的 LangGraph demo，而是把「外部 LangGraph app 應該怎麼整合
+correction runtime」整理成 reference integration。這一步承接 Task 38 的 public SDK surface：
+example 不應該碰 `src/runtime/*`、`src/graph/*` 或 `src/session/*`，而是只透過
+`reactive-correction-graph` package root 使用公開 API。
+
+這裡的角色分工要講清楚：
+
+```txt
+LangGraph 負責 orchestration 與 checkpoint policy。
+public SDK surface 負責對外提供 session / graph session / checkpoint contract。
+signal-kernel 負責 node-local reactive invalidation 與 async settling。
+```
+
+Task 39a 與 39b 建立 `src/examples/langGraphReferenceWorkflow.ts`。這個 example 自己用
+`@langchain/langgraph` 建立 `StateGraph`，節點分成：
+
+```txt
+prepareReferenceInput
+  -> runCorrectionNode
+  -> finalizeReferenceOutput
+```
+
+`runCorrectionNode` 裡面不直接操作 runtime internals，而是用 `createCorrectionSession()` 執行
+correction flow。這代表外部 LangGraph workflow 可以把 correction runtime 當成一個普通 node
+dependency，而不是把 signal、computed、effect 或 async resource 全部塞進 graph state。
+
+Task 39c 補上 public-import guard。它會掃描 reference examples，確認只允許：
+
+```txt
+@langchain/langgraph
+reactive-correction-graph
+```
+
+也就是不要從相對 internal source path 匯入，不要從 `reactive-correction-graph/...` subpath 匯入。
+如果未來文件或範例開始偷用內部檔案，測試會直接擋下來。
+
+Task 39d 補上 state-shape guard。它直接跑 reference workflow，確認 workflow state 可以
+`JSON.stringify` / `JSON.parse` round-trip，而且不要把 session 或 runtime 存進 LangGraph state。
+同時也禁止 signal、computed、effect、promise、subscription、AbortController 這類 live handle
+進入 graph state。這點很重要，因為 LangGraph state 應該保留可序列化的 workflow facts，
+runtime instance 則是 process-local execution detail。
+
+Task 39e 則補上 `src/examples/langGraphPersistentSessionWorkflow.ts`，示範 repeated invocation
+應該怎麼保留 reactive runtime 的 settled cache。做法不是依賴 module-level hidden state，而是在
+workflow factory 裡明確建立 `createCorrectionGraphSession()`：
+
+```ts
+export function createPersistentLangGraphReferenceWorkflow() {
+  const correctionSession = createCorrectionGraphSession();
+  // build StateGraph...
+}
+```
+
+同一個 workflow instance 第二次 style-only invoke 時，receive epoch 會從 `[1]` 變成 `[1, 2]`，
+並且不重跑 fact check，只重跑 style review 與 rewrite。另一個 workflow factory 建出來的 instance
+則從 `[1]` 開始，證明這不是跨 module 偷藏狀態。
+
+Task 39f 最後把這個 reference integration 寫進 README 與中文文章。這段文件的重點是：
+
+- LangGraph 負責外層 workflow orchestration。
+- signal-kernel 負責單一 node 內部的 reactive invalidation。
+- public SDK surface 是兩者之間的整合邊界。
+- 不要把 session 或 runtime 存進 LangGraph state。
+- 不要依賴 module-level hidden state。
+- reference examples 維持 local-first、mock-first。
+- 這條路徑不需要 LangSmith、資料庫、Ollama 或 production LangGraph checkpointer。
+
+因此 Task 39 完成後，專案能更準確地對外說明：
+
+> reactive-correction-graph 不是要取代 LangGraph，而是示範如何在 LangGraph workflow 的單一 node
+> 裡嵌入 reactive runtime。LangGraph 管流程，signal-kernel 管 node 內部細粒度重算，public SDK
+> 管兩者之間可重用、可測試、可文件化的整合邊界。
+
+## Task 40：Reference Demo Narrative
+
+Task 40 的目標是把前面累積的 CLI、artifact bundle、public SDK examples、LangGraph reference examples
+整理成一條新開發者可以照著走的 demo path。這一步不是再新增 runtime 能力，而是把「要怎麼驗證這個
+專案目前做到了什麼」整理成可閱讀、可重現、也不會過度宣稱的敘事。
+
+這條路徑維持 local-first、mock-first：
+
+- 不需要 Ollama
+- 不需要 LangSmith
+- 不需要資料庫
+- 不需要 API key
+
+預設 guided path 只使用 deterministic mock provider。optional integrations 不屬於這條預設路徑。
+
+建議的 deterministic command sequence 是：
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm run demo:compare
+pnpm run demo:report
+```
+
+這組指令的重點是先用 deterministic mock provider 建立穩定 baseline。它讓我們能先驗證 runtime
+settling、selective recomputation、artifact bundle、report generation 與 public SDK boundary，
+再把 Ollama 或其他真實模型接進來。換句話說，mock-first 不是為了逃避真實模型，而是為了先把系統
+契約釘穩。
+
+產出的 `.output` artifacts 可以這樣解讀：
+
+| Artifact | 能證明 | 不能證明 |
+| --- | --- | --- |
+| `.output/result.md` | correction result 被序列化 | factual correctness 或 writing quality |
+| `.output/state.json` | settled runtime state 被保存 | production persistence 或 checkpoint durability |
+| `.output/trace.json` | runtime lifecycle events 被記錄 | latency、concurrency 或 production scalability |
+| `.output/manifest.json` | serialized artifacts 可以被 bundle index 管理 | 每個 optional artifact 永遠存在 |
+| `.output/report.html` | bundle 可以產生 offline evidence report | general LLM quality 或 semantic benchmark accuracy |
+
+這個表格很重要，因為它把 demo 的價值和邊界放在同一個地方。這個專案目前可以證明的是：在固定輸入與
+固定 transition 下，reactive session 能產生可檢查的 trace、state、comparison、savings 與 report。
+它不能直接證明任意 LLM 輸出都是正確的，也不能直接證明 production-grade persistence、distributed
+checkpointing、latency benchmark 或通用語意品質。
+
+看完 artifacts 後，接著應該讀 public SDK examples 和 LangGraph reference examples：
+
+- `src/examples/minimalSdkUsage.ts`
+- `src/examples/langGraphReferenceWorkflow.ts`
+- `src/examples/langGraphPersistentSessionWorkflow.ts`
+
+這三個 example 把 demo path 往外部使用場景推進一步。`minimalSdkUsage.ts` 示範 CLI 以外如何透過
+package root 建立 session 並產生結果；`langGraphReferenceWorkflow.ts` 示範外部 LangGraph workflow
+如何把 correction runtime 當成一個 node dependency；`langGraphPersistentSessionWorkflow.ts` 則示範
+如何用明確的 graph session wrapper 保留 settled cache，而不是把 runtime 偷塞進 graph state 或 module-level
+hidden state。
+
+所以 Task 40 目前可以整理成一句話：
+
+> 先用 local-first、mock-first 的 deterministic path 產出 artifacts，再用 public SDK 和 LangGraph
+> reference examples 說明這些 artifacts 對應到哪個整合邊界；同時明確說清楚它能證明什麼，以及不能證明什麼。
+
+## Task 41：Evidence And Benchmark Story
+
+Task 41 的重點是把「這個專案到底證明了什麼」整理成可以對外說明的 evidence story。核心價值可以先收斂成一句話：
+
+> Reactive Correction Graph 的價值是減少 agent workflow node 裡的重算浪費，並且讓 reuse、invalidation、emitted results 可以透過 trace、artifact、reference tests 被觀察。
+
+這個定位同時也要保留邊界：它不是 LangGraph replacement、LangSmith replacement，也不是 general LLM quality benchmark。它展示的是一個可以嵌入 LangGraph node 的 reactive runtime 如何在固定 transition 裡避免不必要的 agent work，並把這件事變成可檢查的證據。
+
+目前 evidence categories 可以整理成：
+
+| 證據類別 | artifact 或 test source |
+| --- | --- |
+| Recomputation savings | `.output/savings.json`、`.output/comparison.json`、`.output/execution-summary.json` |
+| Session reuse | `.output/trace.json`、`.output/state.json`、`src/examples/langGraphPersistentSessionWorkflow.test.ts` |
+| State safety | `src/examples/langGraphReferenceWorkflow.test.ts`、`src/graph/correctionGraphCheckpoint.test.ts` |
+| Public boundary safety | `src/examples/publicImportGuard.test.ts`、`src/publicSdk.test.ts`、`src/publicSdkPackaging.test.ts` |
+| Report reproducibility | `.output/manifest.json`、`.output/report.html`、`src/report/createEvidenceReportViewModel.test.ts` |
+
+Recomputation savings 目前只限於 deterministic style-only update 和 claim-changing update。`comparison.json`
+比較 eager fresh-runtime calls 與 persistent reactive-session calls；`savings.json` 則把
+`avoidedCalls`、`reusedReceives`、`supersededCalls` 分開列出；`execution-summary.json` 依 receive
+整理 recomputed、reused、superseded、emitted work。
+
+在 style-only update 裡，persistent reactive session 可以避免一次 fact-check call，因為 settled fact-check
+result 被 reuse。到了 claim-changing update，claims 已經改變，所以 fact-check work 會再次執行；這時候
+demo 不應該宣稱 fact-check reuse。這個差異讓 benchmark story 不只是「呼叫次數變少」，而是能說明
+什麼狀態變更應該觸發重算、什麼狀態變更應該保留已 settled 的工作。
+
+Session reuse 的證據來自 `.output/trace.json` 與 `.output/state.json` 裡的 receive epochs，也來自
+`src/examples/langGraphPersistentSessionWorkflow.test.ts`。同一個 workflow session 第二次 invocation
+會延續 receive history；另一個 workflow session 則從獨立狀態開始。這點避免把 reuse 誤解成 module-level
+hidden state。
+
+State safety 的重點是 LangGraph state 維持 JSON-compatible workflow facts。`src/examples/langGraphReferenceWorkflow.test.ts`
+會把 workflow state 做 JSON round-trip，並確認 live handles 沒有進入 state。這裡特別排除
+runtime objects、sessions、signals、promises、subscriptions、AbortController，因為它們都是 process-local
+execution detail，不應該成為 graph checkpoint data。`src/graph/correctionGraphCheckpoint.test.ts`
+則驗證 checkpoint restore、restore 後的 second receive behavior，以及多個 restored sessions 的 isolation。
+
+Public boundary safety 的重點是 reference examples 透過 `reactive-correction-graph` package root 使用能力，
+不要直接 import internal source paths。`src/examples/publicImportGuard.test.ts` 會擋下 relative imports、
+`/src/` imports 與 package subpath imports；`src/publicSdk.test.ts` 會從 package root 執行代表性的
+session、graph session、checkpoint、artifact APIs；`src/publicSdkPackaging.test.ts` 則確認 build metadata
+指向 `dist/index.js` 與 `dist/index.d.ts`。
+
+Quality boundary 也要講清楚。Trace evidence 只能說明 runtime work lifecycle：哪些 work changed、stale、pending、resolved、reused、emitted。它不能證明 factual correctness、writing quality、provider quality 或 semantic usefulness。
+
+Repeated verification 可以記錄 intentional verification attempts，但不會自動變成 independent corroboration。
+除非 verifier identity、evidence sources、agreement、disagreement 被分開記錄，否則多跑幾次 fact check
+只代表系統做了更多驗證工作，不代表結論一定為真。
+
+Local LLM evaluation 目前是 manual provider compatibility path。它可以幫助觀察本機模型是否能跑完 runtime contract，但 `subjectiveCorrectionQuality: not-evaluated` 仍然不是品質分數。因此目前 demo 不是 latency、token、cost、semantic accuracy、provider quality 或 production durability benchmark。
+
+這裡需要特別補上一個真實串接 LLM 時的測試心智：real LLM provider evaluation 不能完全用一般 deterministic product test 的標準來看。小模型和大模型在 instruction following、JSON schema discipline、多 claim 一對一映射、claim id preservation、長上下文一致性上本來就有能力差異。像 `llama3.2:3b` 這類小模型，在多 claim fact-check 裡只回部分 items、合併 claims、漏掉 claim id，或回傳格式漂移，都是 real provider compatibility 評估中應該預期會遇到的現象。
+
+因此 `evaluate:ollama` 不應該要求每次都 full coverage、每次都 zero unresolved issues、每次 revised draft 都完全一致。比較合理的標準是：provider 不完美時，runtime 能不能清楚表達結果。也就是：
+
+- 能 settle，或 rejected 時有清楚 error。
+- missing coverage 會變成 `normalizedMissingCount` 與 unresolved issues。
+- unknown claim id 會變成 `ignoredUnknownCount`，不會污染 coverage。
+- invalid JSON、empty response 或 timeout 會進入 rejected path，不會產生假的 final result。
+- `subjectiveCorrectionQuality` 維持 `not-evaluated`，避免把 provider compatibility 誤讀成品質分數。
+
+換句話說，mock tests 驗證 runtime correctness；Ollama evaluation 驗證 real provider compatibility 與 drift handling。real LLM 漂移本身不是失敗；真正的失敗是系統無法偵測漂移、無法記錄漂移，或把不完整的 LLM output 包裝成已完全驗證的結果。這也呼應這個專案的核心精神：不是假設 agent output 永遠穩定，而是把不穩定的 agent work 變成可以追蹤、可以正規化、可以評估邊界的工程流程。
+
+所以 Task 41 完成後，可以把對外說法整理成：
+
+> 這個專案的 benchmark story 不是「LLM 變聰明」或「LangGraph 被取代」，而是「在固定 agent workflow
+> transition 裡，signal-kernel runtime 能減少不必要的重算，並用 trace、artifact、SDK boundary、
+> LangGraph reference tests 把這件事變成可驗證的工程證據」。

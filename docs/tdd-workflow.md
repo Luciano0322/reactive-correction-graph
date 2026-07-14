@@ -1628,6 +1628,207 @@ Suggested TDD slices:
 5. Task 37e: connect the checkpoint contract to the LangGraph session wrapper.
 6. Task 37f: document durable state boundaries, limitations, and future LangGraph production work.
 
+### 38. Public SDK Surface
+
+Scenario:
+
+```txt
+Given the runtime, session, graph, checkpoint, artifact, and inspector contracts are stable enough for local demos
+When another TypeScript project wants to use this package
+Then it imports supported APIs from one public SDK surface instead of reaching into internal source paths
+```
+
+Why this follows Task 37:
+
+```txt
+Task 34-37 stabilized observability, session lifecycle, and checkpoint boundaries.
+Task 38 turns those boundaries into an explicit public package surface.
+```
+
+Public API direction:
+
+```ts
+import {
+  createCorrectionSession,
+  createCorrectionGraphSession,
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+  restoreCorrectionSessionFromCheckpoint,
+  createCorrectionSessionArtifactBundle,
+} from "reactive-correction-graph";
+```
+
+Acceptance:
+
+- the package has a single public entrypoint, such as `src/index.ts`.
+- public exports include the stable SDK contracts for session, graph session, checkpoint, artifact bundle, and inspector view-model usage.
+- public type exports are available without forcing consumers to import private implementation files.
+- package `exports` points to the built public entrypoint, not individual internal modules.
+- tests prove representative SDK imports compile and run through the public entrypoint.
+- tests or static checks prevent accidental reliance on internal source paths for documented examples.
+- examples stay local-first and mock-first; they do not require Ollama, LangSmith, a database, or a real LangGraph checkpointer.
+- unstable internals remain unexported unless there is a clear consumer-facing reason.
+- README and Chinese article explain the supported import surface and its limits.
+
+Suggested TDD slices:
+
+1. Task 38a: add a failing public-entrypoint test that imports session and checkpoint APIs from the package root.
+2. Task 38b: create `src/index.ts` and export the stable runtime/session/graph/checkpoint contracts.
+3. Task 38c: add package `exports` and declaration build checks for the public entrypoint.
+4. Task 38d: add a minimal SDK usage example that runs through the public API only.
+5. Task 38e: add a LangGraph checkpoint usage example that imports only from the public API.
+6. Task 38f: document the public SDK surface, private internals, and current non-goals.
+
+### 39. LangGraph Reference Integration
+
+Scenario:
+
+```txt
+Given the public SDK surface exists
+When an external LangGraph app wants to use the correction runtime as one workflow node
+Then it can follow a reference integration that imports only the public SDK and keeps LangGraph state serializable
+```
+
+Why this follows Task 38:
+
+```txt
+Task 38 proved the package root can expose the supported SDK boundary.
+Task 39 uses that public boundary to show how another LangGraph workflow should integrate the correction runtime.
+This is not about adding a bigger built-in LangGraph demo; it is about documenting and testing the reference integration shape.
+```
+
+Reference integration direction:
+
+```ts
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+import {
+  createCorrectionGraphSession,
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+} from "reactive-correction-graph";
+```
+
+Acceptance:
+
+- a reference workflow example lives outside the internal graph implementation and imports only `@langchain/langgraph` plus `reactive-correction-graph`.
+- the reference workflow treats the correction runtime as a LangGraph node dependency, not as a set of internal runtime files.
+- examples and tests prevent direct imports from `src/runtime/*`, `src/graph/*`, `src/session/*`, and other implementation paths.
+- LangGraph state used by the reference workflow remains JSON-compatible and does not store runtime instances, sessions, signals, promises, functions, subscriptions, or AbortController values.
+- repeated workflow invocations demonstrate the right ownership boundary: persistent behavior belongs to `createCorrectionGraphSession()` or an explicit session wrapper, not to accidental module-level state.
+- checkpoint examples stay local-first and mock-first; they do not require LangSmith, a database, Ollama, or a real LangGraph checkpointer.
+- docs explain the split clearly: LangGraph owns orchestration and checkpoint policy, while signal-kernel owns node-local reactive invalidation and async settling.
+
+Suggested TDD slices:
+
+1. Task 39a: add a failing reference workflow test that imports a future `langGraphReferenceWorkflow` example.
+2. Task 39b: implement the reference workflow example using only `@langchain/langgraph` and the public SDK package root.
+3. Task 39c: add a public-import guard test that rejects internal source-path imports in reference examples.
+4. Task 39d: add a state-shape test proving the reference workflow checkpoint state is JSON-compatible and excludes live runtime/session values.
+5. Task 39e: add a persistent-session example or test showing how repeated invocations reuse `createCorrectionGraphSession()` without module-level hidden state.
+6. Task 39f: document the LangGraph reference integration and the role split between LangGraph, the public SDK, and signal-kernel.
+
+### 40. Reference Demo Narrative
+
+Scenario:
+
+```txt
+Given the CLI, artifact bundle, public SDK examples, and LangGraph reference examples are all available
+When a developer opens the repository for the first time
+Then they can follow one local-first guided path that explains what to run, what to inspect, and what each artifact proves
+```
+
+Why this follows Task 39:
+
+```txt
+Task 38 made the public SDK boundary explicit.
+Task 39 showed how an external LangGraph workflow can use that boundary.
+Task 40 turns those pieces into a coherent demo path instead of leaving them as disconnected examples.
+```
+
+Narrative direction:
+
+```txt
+1. Run deterministic setup and tests.
+2. Run CLI artifact generation.
+3. Inspect result/state/trace/manifest/report artifacts.
+4. Run or read the public SDK examples.
+5. Run or read the LangGraph reference workflow examples.
+6. Understand the local-first, mock-first boundary before optional Ollama or future production integrations.
+```
+
+Acceptance:
+
+- README has a guided demo path that a new developer can follow without Ollama, LangSmith, a database, or an API key.
+- the path names the exact commands to run and the artifacts to inspect.
+- the narrative connects CLI artifacts, public SDK examples, LangGraph reference examples, and static evidence reports.
+- the narrative explains why the demo starts with deterministic mock behavior before optional local LLM evaluation.
+- docs avoid implying that this is already a production package, production checkpointing layer, or semantic quality benchmark.
+- tests or static checks prevent the documented demo path from depending on internal source imports.
+- the Chinese article mirrors the same story so it can become a publishable technical article outline.
+
+Suggested TDD slices:
+
+1. Task 40a: add a failing docs test that requires README to include a guided local demo path.
+2. Task 40b: document the deterministic command sequence and expected `.output` artifacts.
+3. Task 40c: add a docs/static check that the demo narrative links to public SDK and LangGraph reference examples.
+4. Task 40d: document what each artifact proves and what it does not prove.
+5. Task 40e: mirror the guided demo narrative in the Chinese article.
+6. Task 40f: add a final docs guard that keeps the demo path local-first and mock-first by default.
+
+### 41. Evidence And Benchmark Story
+
+Scenario:
+
+```txt
+Given the project can produce traces, execution summaries, savings reports, comparison reports, inspector data, and reference workflow examples
+When the project claims value
+Then the claim is grounded in explicit evidence categories and avoids overclaiming latency, cost, factual accuracy, or general LLM quality
+```
+
+Why this follows Task 40:
+
+```txt
+Task 40 tells the developer how to run the demo.
+Task 41 tells them how to interpret the evidence without turning a local deterministic demo into an exaggerated benchmark claim.
+```
+
+Evidence direction:
+
+```txt
+Reactive correction graph value is framed as:
+- fewer unnecessary recomputations for fixed transitions.
+- explicit receive/session reuse evidence.
+- serializable LangGraph state safety.
+- public SDK boundary discipline.
+- reproducible artifact bundles and reports.
+
+It is not framed as:
+- a general latency benchmark.
+- a token/cost benchmark.
+- a factual correctness benchmark.
+- a LangGraph replacement claim.
+- a LangSmith replacement claim.
+```
+
+Acceptance:
+
+- docs define separate evidence categories for recomputation savings, session reuse, state safety, public boundary safety, and report reproducibility.
+- each category maps to concrete artifacts or tests, such as `trace.json`, `execution-summary.json`, `savings.json`, `comparison.json`, `report.html`, SDK examples, and reference workflow tests.
+- benchmark language is scoped to deterministic fixed transitions unless a future benchmark supplies broader fixtures and methodology.
+- docs clearly separate intentional verification/corroboration from accidental reactive recomputation.
+- docs explain why repeated fact checks may be useful but do not automatically prove factual correctness.
+- docs preserve limitations around latency, token use, cost, provider quality, semantic correctness, production durability, and distributed execution.
+- README and Chinese article provide a concise value statement: the project reduces wasted recomputation inside agent workflow nodes and makes that behavior observable.
+
+Suggested TDD slices:
+
+1. Task 41a: add a failing docs test requiring named evidence categories and their artifact sources.
+2. Task 41b: document recomputation savings and receive/session reuse using existing comparison artifacts.
+3. Task 41c: document state safety and public-boundary safety using reference workflow tests.
+4. Task 41d: document quality boundaries: what traces, repeated verification, and local LLM evaluation cannot prove.
+5. Task 41e: add a concise README value statement focused on reducing wasted recomputation inside agent workflow nodes.
+6. Task 41f: mirror the evidence and limitation story in the Chinese article for future technical publishing.
+
 ## How To Ask The Agent
 
 Good request:

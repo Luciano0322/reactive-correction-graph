@@ -9,6 +9,128 @@ See [Durable LangGraph Session Boundary](./docs/durable-langgraph-session.md) fo
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
 See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama demo path.
 
+## Value Statement
+
+Reactive Correction Graph reduces wasted recomputation inside agent workflow nodes.
+It makes reuse, invalidation, and emitted results observable through traces, artifacts, and reference tests.
+It is not positioned as a LangGraph replacement, LangSmith replacement, or general LLM quality benchmark.
+
+## Public SDK Surface
+
+This repository is currently a private reference implementation. The package
+surface is used to validate future SDK boundaries; it is not published to npm
+yet and should not be treated as a stable package release.
+
+Supported examples import only from the package root:
+
+```ts
+import {
+  createCorrectionSession,
+  createCorrectionGraphSession,
+  createCorrectionGraphCheckpoint,
+  parseCorrectionGraphCheckpoint,
+  restoreCorrectionSessionFromCheckpoint,
+  createCorrectionSessionArtifactBundle,
+} from "reactive-correction-graph";
+```
+
+The representative examples are:
+
+- `src/examples/minimalSdkUsage.ts`
+- `src/examples/langGraphCheckpointUsage.ts`
+
+Private internals remain private. Do not import from `src/runtime/*`,
+`src/graph/*`, `src/session/*`, or other implementation paths in docs,
+examples, or downstream experiments. If a capability is meant to be reused, it
+should first be promoted through `src/index.ts`.
+
+Non-goals:
+
+- This is not a React or Vue adapter.
+- This is not a production LangGraph checkpointer.
+- This is not a LangSmith replacement.
+- This does not claim the current repo should be published as the final npm
+  package; a future package can be extracted after the reference demo proves
+  the boundary is useful.
+
+## LangGraph Reference Integration
+
+Task 39 keeps the LangGraph story focused on reference integration instead of
+adding another built-in demo mode. LangGraph owns orchestration and checkpoint
+policy, while signal-kernel owns node-local reactive invalidation and async
+settling. The public SDK is the boundary between those layers.
+
+Role split:
+
+- LangGraph owns orchestration and checkpoint policy.
+- signal-kernel owns node-local reactive invalidation and async settling.
+
+Reference examples:
+
+- `src/examples/langGraphReferenceWorkflow.ts` shows an external `StateGraph`
+  with its own prepare, correction, and finalize nodes. The correction node uses
+  `createCorrectionSession()` from the package root.
+- `src/examples/langGraphPersistentSessionWorkflow.ts` shows repeated
+  invocations through an explicit `createCorrectionGraphSession()` owned by a
+  workflow factory. A second style-only invocation reuses fact-check work, while
+  a separate workflow factory starts from a fresh session.
+
+Rules for downstream integrations:
+
+- Do not import from internal source paths; use `reactive-correction-graph`.
+- Do not store sessions or runtimes in LangGraph state.
+- Keep graph state JSON-compatible so checkpointing can remain a policy choice
+  outside the runtime.
+- Own persistent behavior explicitly through a session wrapper or workflow
+  factory, not through module-level hidden state.
+- Keep reference paths local-first and mock-first; this does not require
+  LangSmith, a database, Ollama, or a production LangGraph checkpointer.
+
+This path does not require LangSmith.
+
+## Guided Local Demo Path
+
+Use this local-first, mock-first path when evaluating the reference demo from a
+fresh checkout:
+
+- does not require Ollama
+- does not require LangSmith
+- does not require a database
+- does not require an API key
+
+The default guided path uses deterministic mock behavior only.
+Optional integrations stay outside this guided path.
+
+Run the deterministic command sequence:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm run demo:compare
+pnpm run demo:report
+```
+
+The expected `.output` artifacts are:
+
+| Artifact | What it proves | What it does not prove |
+| --- | --- | --- |
+| `.output/result.md` | A representative correction result was serialized | Factual correctness or writing quality |
+| `.output/state.json` | The final settled runtime state was captured | Production persistence or checkpoint durability |
+| `.output/trace.json` | Runtime lifecycle events were recorded for one completed run | Latency, concurrency, or production scalability |
+| `.output/manifest.json` | Compatible serialized artifacts can be indexed as a bundle | That every optional artifact is always present |
+| `.output/report.html` | The bundle can render an offline evidence report | General LLM quality or semantic benchmark accuracy |
+
+This path is intentionally deterministic. It proves the CLI, runtime session,
+artifact bundle, public SDK boundary, and report generation can work together
+before optional Ollama evaluation or future production integrations are added.
+
+Then read the public SDK examples and LangGraph reference examples:
+
+- [src/examples/minimalSdkUsage.ts](./src/examples/minimalSdkUsage.ts)
+- [src/examples/langGraphReferenceWorkflow.ts](./src/examples/langGraphReferenceWorkflow.ts)
+- [src/examples/langGraphPersistentSessionWorkflow.ts](./src/examples/langGraphPersistentSessionWorkflow.ts)
+
 ## Architecture
 
 ```mermaid
@@ -199,6 +321,47 @@ Repeating the same fact check may be useful, but repetition alone does not add
 confidence. A future corroboration benchmark must record verifier identity,
 evidence sources, agreement, and disagreement separately from reactive
 recomputation.
+
+## Evidence And Benchmark Story
+
+The demo evidence is split into named categories so the benchmark story stays
+grounded in concrete artifacts and tests:
+
+| Evidence category | Artifact or test sources |
+| --- | --- |
+| Recomputation savings | `.output/savings.json`, `.output/comparison.json`, `.output/execution-summary.json` |
+| Session reuse | `.output/trace.json`, `.output/state.json`, `src/examples/langGraphPersistentSessionWorkflow.test.ts` |
+| State safety | `src/examples/langGraphReferenceWorkflow.test.ts`, `src/graph/correctionGraphCheckpoint.test.ts` |
+| Public boundary safety | `src/examples/publicImportGuard.test.ts`, `src/publicSdk.test.ts`, `src/publicSdkPackaging.test.ts` |
+| Report reproducibility | `.output/manifest.json`, `.output/report.html`, `src/report/createEvidenceReportViewModel.test.ts` |
+
+Recomputation savings are scoped to the deterministic style-only and claim-changing transitions.
+`comparison.json` compares eager fresh-runtime calls against persistent reactive-session calls.
+`savings.json` reports `avoidedCalls`, `reusedReceives`, and `supersededCalls`.
+`execution-summary.json` groups recomputed, reused, superseded, and emitted work by receive.
+
+For the style-only update, the persistent reactive session avoids one fact-check call because the settled fact-check result is reused.
+For the claim-changing update, fact-check work runs again, so the demo does not claim fact-check reuse.
+Session reuse is evidenced by receive epochs in `.output/trace.json` and `.output/state.json`.
+`src/examples/langGraphPersistentSessionWorkflow.test.ts` verifies that one workflow session reuses receives while a separate workflow starts isolated.
+
+State safety means LangGraph state remains JSON-compatible workflow facts.
+`src/examples/langGraphReferenceWorkflow.test.ts` round-trips workflow state through JSON and rejects live runtime handles.
+`src/graph/correctionGraphCheckpoint.test.ts` verifies checkpoint restore, second receive behavior, and isolated restored sessions.
+Runtime objects, sessions, signals, promises, subscriptions, and AbortController values stay out of graph state.
+
+Public boundary safety means reference examples import through `reactive-correction-graph` instead of internal source paths.
+`src/examples/publicImportGuard.test.ts` rejects relative imports, `/src/` imports, and package subpath imports in reference examples.
+`src/publicSdk.test.ts` exercises representative session, graph session, checkpoint, and artifact APIs from the package root.
+`src/publicSdkPackaging.test.ts` keeps the build metadata pointed at `dist/index.js` and `dist/index.d.ts`.
+
+Trace evidence shows which runtime work changed, became stale, ran, resolved, was reused, or emitted.
+Trace evidence does not prove factual correctness, writing quality, provider quality, or semantic usefulness.
+Repeated verification records intentional verification attempts.
+Repeated verification does not prove independent corroboration unless verifier identity, evidence sources, agreement, and disagreement are recorded separately.
+Local LLM evaluation is a manual provider compatibility path.
+Local LLM evaluation does not turn `subjectiveCorrectionQuality: not-evaluated` into a quality score.
+The current demo is not a latency, token, cost, semantic accuracy, provider quality, or production durability benchmark.
 
 ## Limitations
 

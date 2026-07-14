@@ -1678,3 +1678,74 @@ hidden state。
 
 > 先用 local-first、mock-first 的 deterministic path 產出 artifacts，再用 public SDK 和 LangGraph
 > reference examples 說明這些 artifacts 對應到哪個整合邊界；同時明確說清楚它能證明什麼，以及不能證明什麼。
+
+## Task 41：Evidence And Benchmark Story
+
+Task 41 的重點是把「這個專案到底證明了什麼」整理成可以對外說明的 evidence story。核心價值可以先收斂成一句話：
+
+> Reactive Correction Graph 的價值是減少 agent workflow node 裡的重算浪費，並且讓 reuse、invalidation、emitted results 可以透過 trace、artifact、reference tests 被觀察。
+
+這個定位同時也要保留邊界：它不是 LangGraph replacement、LangSmith replacement，也不是 general LLM quality benchmark。它展示的是一個可以嵌入 LangGraph node 的 reactive runtime 如何在固定 transition 裡避免不必要的 agent work，並把這件事變成可檢查的證據。
+
+目前 evidence categories 可以整理成：
+
+| 證據類別 | artifact 或 test source |
+| --- | --- |
+| Recomputation savings | `.output/savings.json`、`.output/comparison.json`、`.output/execution-summary.json` |
+| Session reuse | `.output/trace.json`、`.output/state.json`、`src/examples/langGraphPersistentSessionWorkflow.test.ts` |
+| State safety | `src/examples/langGraphReferenceWorkflow.test.ts`、`src/graph/correctionGraphCheckpoint.test.ts` |
+| Public boundary safety | `src/examples/publicImportGuard.test.ts`、`src/publicSdk.test.ts`、`src/publicSdkPackaging.test.ts` |
+| Report reproducibility | `.output/manifest.json`、`.output/report.html`、`src/report/createEvidenceReportViewModel.test.ts` |
+
+Recomputation savings 目前只限於 deterministic style-only update 和 claim-changing update。`comparison.json`
+比較 eager fresh-runtime calls 與 persistent reactive-session calls；`savings.json` 則把
+`avoidedCalls`、`reusedReceives`、`supersededCalls` 分開列出；`execution-summary.json` 依 receive
+整理 recomputed、reused、superseded、emitted work。
+
+在 style-only update 裡，persistent reactive session 可以避免一次 fact-check call，因為 settled fact-check
+result 被 reuse。到了 claim-changing update，claims 已經改變，所以 fact-check work 會再次執行；這時候
+demo 不應該宣稱 fact-check reuse。這個差異讓 benchmark story 不只是「呼叫次數變少」，而是能說明
+什麼狀態變更應該觸發重算、什麼狀態變更應該保留已 settled 的工作。
+
+Session reuse 的證據來自 `.output/trace.json` 與 `.output/state.json` 裡的 receive epochs，也來自
+`src/examples/langGraphPersistentSessionWorkflow.test.ts`。同一個 workflow session 第二次 invocation
+會延續 receive history；另一個 workflow session 則從獨立狀態開始。這點避免把 reuse 誤解成 module-level
+hidden state。
+
+State safety 的重點是 LangGraph state 維持 JSON-compatible workflow facts。`src/examples/langGraphReferenceWorkflow.test.ts`
+會把 workflow state 做 JSON round-trip，並確認 live handles 沒有進入 state。這裡特別排除
+runtime objects、sessions、signals、promises、subscriptions、AbortController，因為它們都是 process-local
+execution detail，不應該成為 graph checkpoint data。`src/graph/correctionGraphCheckpoint.test.ts`
+則驗證 checkpoint restore、restore 後的 second receive behavior，以及多個 restored sessions 的 isolation。
+
+Public boundary safety 的重點是 reference examples 透過 `reactive-correction-graph` package root 使用能力，
+不要直接 import internal source paths。`src/examples/publicImportGuard.test.ts` 會擋下 relative imports、
+`/src/` imports 與 package subpath imports；`src/publicSdk.test.ts` 會從 package root 執行代表性的
+session、graph session、checkpoint、artifact APIs；`src/publicSdkPackaging.test.ts` 則確認 build metadata
+指向 `dist/index.js` 與 `dist/index.d.ts`。
+
+Quality boundary 也要講清楚。Trace evidence 只能說明 runtime work lifecycle：哪些 work changed、stale、pending、resolved、reused、emitted。它不能證明 factual correctness、writing quality、provider quality 或 semantic usefulness。
+
+Repeated verification 可以記錄 intentional verification attempts，但不會自動變成 independent corroboration。
+除非 verifier identity、evidence sources、agreement、disagreement 被分開記錄，否則多跑幾次 fact check
+只代表系統做了更多驗證工作，不代表結論一定為真。
+
+Local LLM evaluation 目前是 manual provider compatibility path。它可以幫助觀察本機模型是否能跑完 runtime contract，但 `subjectiveCorrectionQuality: not-evaluated` 仍然不是品質分數。因此目前 demo 不是 latency、token、cost、semantic accuracy、provider quality 或 production durability benchmark。
+
+這裡需要特別補上一個真實串接 LLM 時的測試心智：real LLM provider evaluation 不能完全用一般 deterministic product test 的標準來看。小模型和大模型在 instruction following、JSON schema discipline、多 claim 一對一映射、claim id preservation、長上下文一致性上本來就有能力差異。像 `llama3.2:3b` 這類小模型，在多 claim fact-check 裡只回部分 items、合併 claims、漏掉 claim id，或回傳格式漂移，都是 real provider compatibility 評估中應該預期會遇到的現象。
+
+因此 `evaluate:ollama` 不應該要求每次都 full coverage、每次都 zero unresolved issues、每次 revised draft 都完全一致。比較合理的標準是：provider 不完美時，runtime 能不能清楚表達結果。也就是：
+
+- 能 settle，或 rejected 時有清楚 error。
+- missing coverage 會變成 `normalizedMissingCount` 與 unresolved issues。
+- unknown claim id 會變成 `ignoredUnknownCount`，不會污染 coverage。
+- invalid JSON、empty response 或 timeout 會進入 rejected path，不會產生假的 final result。
+- `subjectiveCorrectionQuality` 維持 `not-evaluated`，避免把 provider compatibility 誤讀成品質分數。
+
+換句話說，mock tests 驗證 runtime correctness；Ollama evaluation 驗證 real provider compatibility 與 drift handling。real LLM 漂移本身不是失敗；真正的失敗是系統無法偵測漂移、無法記錄漂移，或把不完整的 LLM output 包裝成已完全驗證的結果。這也呼應這個專案的核心精神：不是假設 agent output 永遠穩定，而是把不穩定的 agent work 變成可以追蹤、可以正規化、可以評估邊界的工程流程。
+
+所以 Task 41 完成後，可以把對外說法整理成：
+
+> 這個專案的 benchmark story 不是「LLM 變聰明」或「LangGraph 被取代」，而是「在固定 agent workflow
+> transition 裡，signal-kernel runtime 能減少不必要的重算，並用 trace、artifact、SDK boundary、
+> LangGraph reference tests 把這件事變成可驗證的工程證據」。

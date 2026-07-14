@@ -9,6 +9,12 @@ See [Durable LangGraph Session Boundary](./docs/durable-langgraph-session.md) fo
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
 See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama demo path.
 
+## Value Statement
+
+Reactive Correction Graph reduces wasted recomputation inside agent workflow nodes.
+It makes reuse, invalidation, and emitted results observable through traces, artifacts, and reference tests.
+It is not positioned as a LangGraph replacement, LangSmith replacement, or general LLM quality benchmark.
+
 ## Public SDK Surface
 
 This repository is currently a private reference implementation. The package
@@ -315,6 +321,47 @@ Repeating the same fact check may be useful, but repetition alone does not add
 confidence. A future corroboration benchmark must record verifier identity,
 evidence sources, agreement, and disagreement separately from reactive
 recomputation.
+
+## Evidence And Benchmark Story
+
+The demo evidence is split into named categories so the benchmark story stays
+grounded in concrete artifacts and tests:
+
+| Evidence category | Artifact or test sources |
+| --- | --- |
+| Recomputation savings | `.output/savings.json`, `.output/comparison.json`, `.output/execution-summary.json` |
+| Session reuse | `.output/trace.json`, `.output/state.json`, `src/examples/langGraphPersistentSessionWorkflow.test.ts` |
+| State safety | `src/examples/langGraphReferenceWorkflow.test.ts`, `src/graph/correctionGraphCheckpoint.test.ts` |
+| Public boundary safety | `src/examples/publicImportGuard.test.ts`, `src/publicSdk.test.ts`, `src/publicSdkPackaging.test.ts` |
+| Report reproducibility | `.output/manifest.json`, `.output/report.html`, `src/report/createEvidenceReportViewModel.test.ts` |
+
+Recomputation savings are scoped to the deterministic style-only and claim-changing transitions.
+`comparison.json` compares eager fresh-runtime calls against persistent reactive-session calls.
+`savings.json` reports `avoidedCalls`, `reusedReceives`, and `supersededCalls`.
+`execution-summary.json` groups recomputed, reused, superseded, and emitted work by receive.
+
+For the style-only update, the persistent reactive session avoids one fact-check call because the settled fact-check result is reused.
+For the claim-changing update, fact-check work runs again, so the demo does not claim fact-check reuse.
+Session reuse is evidenced by receive epochs in `.output/trace.json` and `.output/state.json`.
+`src/examples/langGraphPersistentSessionWorkflow.test.ts` verifies that one workflow session reuses receives while a separate workflow starts isolated.
+
+State safety means LangGraph state remains JSON-compatible workflow facts.
+`src/examples/langGraphReferenceWorkflow.test.ts` round-trips workflow state through JSON and rejects live runtime handles.
+`src/graph/correctionGraphCheckpoint.test.ts` verifies checkpoint restore, second receive behavior, and isolated restored sessions.
+Runtime objects, sessions, signals, promises, subscriptions, and AbortController values stay out of graph state.
+
+Public boundary safety means reference examples import through `reactive-correction-graph` instead of internal source paths.
+`src/examples/publicImportGuard.test.ts` rejects relative imports, `/src/` imports, and package subpath imports in reference examples.
+`src/publicSdk.test.ts` exercises representative session, graph session, checkpoint, and artifact APIs from the package root.
+`src/publicSdkPackaging.test.ts` keeps the build metadata pointed at `dist/index.js` and `dist/index.d.ts`.
+
+Trace evidence shows which runtime work changed, became stale, ran, resolved, was reused, or emitted.
+Trace evidence does not prove factual correctness, writing quality, provider quality, or semantic usefulness.
+Repeated verification records intentional verification attempts.
+Repeated verification does not prove independent corroboration unless verifier identity, evidence sources, agreement, and disagreement are recorded separately.
+Local LLM evaluation is a manual provider compatibility path.
+Local LLM evaluation does not turn `subjectiveCorrectionQuality: not-evaluated` into a quality score.
+The current demo is not a latency, token, cost, semantic accuracy, provider quality, or production durability benchmark.
 
 ## Limitations
 

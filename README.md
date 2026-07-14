@@ -131,6 +131,31 @@ Then read the public SDK examples and LangGraph reference examples:
 - [src/examples/langGraphReferenceWorkflow.ts](./src/examples/langGraphReferenceWorkflow.ts)
 - [src/examples/langGraphPersistentSessionWorkflow.ts](./src/examples/langGraphPersistentSessionWorkflow.ts)
 
+## Reference Scenario Definition
+
+The next application layer starts with a fixed technical article correction
+scenario. This is a reference application scenario, not a production app. Its
+job is to make the recomputation story concrete before adding a larger web
+product or provider-specific demo.
+
+The scenario fixtures live in:
+
+- [src/examples/reference-article.md](./src/examples/reference-article.md)
+- [src/examples/reference-style-guide.md](./src/examples/reference-style-guide.md)
+- [src/examples/reference-scenario.json](./src/examples/reference-scenario.json)
+
+The scenario defines three ordered inputs:
+
+- `initial`: establishes the baseline correction result.
+- `style-only update`: changes style guidance while keeping the draft claims
+  stable, so the demo can show reuse fact-check work.
+- `claim-changing update`: changes the draft claims, so the demo can show
+  recompute fact-check work.
+
+This keeps the reference demo focused on runtime behavior: which work can be
+reused, which work must be recomputed, and how those decisions become visible
+through trace and artifact evidence.
+
 ## Architecture
 
 ```mermaid

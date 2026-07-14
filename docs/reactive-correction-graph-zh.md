@@ -1749,3 +1749,23 @@ Local LLM evaluation 目前是 manual provider compatibility path。它可以幫
 > 這個專案的 benchmark story 不是「LLM 變聰明」或「LangGraph 被取代」，而是「在固定 agent workflow
 > transition 裡，signal-kernel runtime 能減少不必要的重算，並用 trace、artifact、SDK boundary、
 > LangGraph reference tests 把這件事變成可驗證的工程證據」。
+
+## Task 42：Reference Scenario Definition
+
+Task 42 開始把專案從 infrastructure proof 往 application proof 推進。這一階段先不急著做大型 Web app，也不急著接更多 provider，而是先定義一個固定的 technical article correction reference application scenario。它不是 production app；它的目的，是讓「減少 agent workflow 裡不必要重算」這件事從抽象 runtime 能力，變成可以被重跑、可以被講解、也可以被 trace/artifact 驗證的應用情境。
+
+目前 reference scenario 的 fixtures 放在：
+
+- `src/examples/reference-article.md`
+- `src/examples/reference-style-guide.md`
+- `src/examples/reference-scenario.json`
+
+`reference-article.md` 是一篇用來校正的技術文章草稿；`reference-style-guide.md` 是初始寫作規則；`reference-scenario.json` 則描述這個情境的 metadata、fixture paths、user intent、proof target，以及後續 transitions。
+
+這個 scenario 目前定義三個 ordered inputs：
+
+- `initial`：建立 technical article correction 的 baseline correction result。
+- `style-only update`：只改 style guide，不改 draft claims，用來展示 reuse fact-check work。
+- `claim-changing update`：修改 draft claims，用來展示 recompute fact-check work。
+
+這個設計讓 demo 的重點不會變成「模型答案好不好」，而是聚焦在 runtime 行為：哪些 work 可以 reuse、哪些 work 必須 recompute，以及這些決策如何透過 trace、state、summary、savings 或 report artifacts 被觀察。

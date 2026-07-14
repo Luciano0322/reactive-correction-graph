@@ -1,0 +1,34 @@
+{
+  "kind": "reference-application",
+  "fixturePaths": {
+    "initialDraft": "reference-article.md",
+    "styleGuide": "reference-style-guide.md",
+    "metadata": "reference-scenario.json"
+  },
+  "proofTarget": "Show that style-only updates can reuse fact-check work while claim-changing updates recompute fact-check work.",
+  "description": "A technical article correction scenario that turns the reactive runtime into an application-level recomputation and traceability demo.",
+  "initialUserIntent": "Explain how Reactive Correction Graph reduces unnecessary agent recomputation.",
+  "styleOnlyStyleGuide": "# Reference Style Guide\n\n- Use more concise technical language.\n- Prefer concrete evidence over broad benchmark claims.\n- Explain runtime behavior through observable artifacts.\n- Avoid claiming factual correctness or provider quality from trace data alone.\n",
+  "claimChangingDraftAppendix": "A claim-changing update adds that Reactive Correction Graph can also compare independent evidence sources before accepting a fact-check result.",
+  "executionBoundary": {
+    "provider": "mock",
+    "requiresNetwork": false,
+    "requiresOllama": false,
+    "requiresLangSmith": false,
+    "requiresApiKey": false
+  },
+  "transitions": [
+    {
+      "id": "initial",
+      "proofTarget": "Establish the baseline correction result for the reference application scenario."
+    },
+    {
+      "id": "style-only",
+      "proofTarget": "Show that a style-only update can reuse fact-check work while recomputing style review and rewrite work."
+    },
+    {
+      "id": "claim-changing",
+      "proofTarget": "Show that a claim-changing update should recompute fact-check work instead of reusing stale claim coverage."
+    }
+  ]
+}

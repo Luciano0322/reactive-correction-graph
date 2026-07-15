@@ -156,6 +156,35 @@ This keeps the reference demo focused on runtime behavior: which work can be
 reused, which work must be recomputed, and how those decisions become visible
 through trace and artifact evidence.
 
+## Reference Scenario Runner
+
+Run the deterministic reference scenario with:
+
+```bash
+pnpm run demo:reference
+```
+
+The runner is mock-first and uses deterministic mock model behavior. It does not require Ollama, LangSmith, API keys, a database, or a browser.
+
+By default, artifacts are written under `./.output/reference`. A custom output
+directory can be provided with either an environment variable or a CLI option:
+
+```bash
+REFERENCE_OUTPUT_DIR=./.output/reference pnpm run demo:reference
+pnpm run demo:reference -- --output-dir ./.output/reference
+```
+
+The reference runner writes:
+
+| Artifact | Purpose |
+| --- | --- |
+| `.output/reference/result.md` | Human-readable final correction result |
+| `.output/reference/state.json` | Final settled runtime state |
+| `.output/reference/trace.json` | Runtime lifecycle trace for the scenario |
+| `.output/reference/execution-summary.json` | Per-receive recompute, reuse, and emitted-work summary |
+| `.output/reference/savings.json` | Deterministic recomputation-savings report placeholder |
+| `.output/reference/manifest.json` | Artifact bundle index for report and tooling consumers |
+
 ## Architecture
 
 ```mermaid

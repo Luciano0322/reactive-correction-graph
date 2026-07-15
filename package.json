@@ -19,6 +19,7 @@
     "demo:compare": "tsx src/cli/runComparison.ts",
     "demo:graph": "tsx src/cli/runDemo.ts --mode graph",
     "demo:ollama": "tsx src/cli/runDemo.ts --provider ollama",
+    "demo:reference": "tsx src/cli/runReferenceDemo.ts",
     "demo:report": "tsx src/cli/runReport.ts",
     "demo:web": "tsx src/cli/runWebDemo.ts",
     "evaluate:corroboration": "tsx src/cli/runCorroborationEvaluation.ts",

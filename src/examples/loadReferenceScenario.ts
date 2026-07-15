@@ -56,6 +56,10 @@ export type ReferenceScenarioTransition =
     input: CorrectionRuntimeInput;
   };
 
+export type LoadReferenceScenarioOptions = {
+  fixtureBaseUrl?: URL;
+};
+
 const transitionInputKeys: Record<
   ReferenceScenarioTransitionId,
   keyof ReferenceScenarioInputs
@@ -65,13 +69,18 @@ const transitionInputKeys: Record<
   "claim-changing": "claimChanging",
 };
 
-export async function loadReferenceScenario(): Promise<ReferenceScenario> {
-  const metadata = JSON.parse(
-    await readFixture("reference-scenario.json"),
-  ) as ReferenceScenarioMetadata;
+const defaultFixtureBaseUrl = new URL("./", import.meta.url);
+
+export async function loadReferenceScenario(
+  options: LoadReferenceScenarioOptions = {},
+): Promise<ReferenceScenario> {
+  const fixtureBaseUrl = options.fixtureBaseUrl ?? defaultFixtureBaseUrl;
+  const metadata = parseMetadata(
+    await readFixture("reference-scenario.json", fixtureBaseUrl),
+  );
   const [initialDraft, styleGuide] = await Promise.all([
-    readFixture(metadata.fixturePaths.initialDraft),
-    readFixture(metadata.fixturePaths.styleGuide),
+    readFixture(metadata.fixturePaths.initialDraft, fixtureBaseUrl),
+    readFixture(metadata.fixturePaths.styleGuide, fixtureBaseUrl),
   ]);
 
   const inputs: ReferenceScenarioInputs = {
@@ -108,6 +117,31 @@ export async function loadReferenceScenario(): Promise<ReferenceScenario> {
   };
 }
 
-function readFixture(filename: string) {
-  return readFile(new URL(`./${filename}`, import.meta.url), "utf8");
+function parseMetadata(raw: string): ReferenceScenarioMetadata {
+  try {
+    return JSON.parse(raw) as ReferenceScenarioMetadata;
+  } catch (error) {
+    throw new Error(
+      "Reference scenario fixture invalid: reference-scenario.json must be valid JSON",
+      { cause: error },
+    );
+  }
+}
+
+async function readFixture(filename: string, fixtureBaseUrl: URL) {
+  try {
+    return await readFile(new URL(filename, fixtureBaseUrl), "utf8");
+  } catch (error) {
+    if (isNodeFileError(error) && error.code === "ENOENT") {
+      throw new Error(`Reference scenario fixture missing: ${filename}`, {
+        cause: error,
+      });
+    }
+
+    throw error;
+  }
+}
+
+function isNodeFileError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }

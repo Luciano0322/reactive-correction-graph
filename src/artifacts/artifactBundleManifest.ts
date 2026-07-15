@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 export type ArtifactBundleCommand =
   | "demo"
   | "demo:graph"
+  | "demo:reference"
   | "demo:compare"
   | "evaluate:ollama"
   | "demo:report";

@@ -1769,3 +1769,35 @@ Task 42 開始把專案從 infrastructure proof 往 application proof 推進。�
 - `claim-changing update`：修改 draft claims，用來展示 recompute fact-check work。
 
 這個設計讓 demo 的重點不會變成「模型答案好不好」，而是聚焦在 runtime 行為：哪些 work 可以 reuse、哪些 work 必須 recompute，以及這些決策如何透過 trace、state、summary、savings 或 report artifacts 被觀察。
+
+## Task 43：Reference Scenario Runner
+
+Task 43 把 Task 42 定義好的 reference application scenario 變成可以重複執行的 CLI demo。這一步的重點不是引入新的 provider，也不是開始做 UI，而是給開發者一個穩定入口，可以在本機重現整個 correction runtime 的 artifact bundle。
+
+執行指令是：
+
+```bash
+pnpm run demo:reference
+```
+
+這個 runner 預設使用 deterministic mock model，所以不需要 Ollama、不需要 LangSmith、不需要 API key、不需要資料庫，也不需要瀏覽器。也就是說，它是 mock-first、local-first 的 reference path，適合拿來驗證 runtime、trace、summary、savings、manifest 這些邊界是否能穩定產出。
+
+預設輸出目錄是 `./.output/reference`。如果要指定輸出位置，可以用環境變數或 CLI option：
+
+```bash
+REFERENCE_OUTPUT_DIR=./.output/reference pnpm run demo:reference
+pnpm run demo:reference -- --output-dir ./.output/reference
+```
+
+目前 runner 會產出這些 artifacts：
+
+| Artifact | 用途 |
+| --- | --- |
+| `.output/reference/result.md` | 給人閱讀的 final correction result |
+| `.output/reference/state.json` | 最後 settled 的 runtime state |
+| `.output/reference/trace.json` | scenario 執行過程中的 runtime lifecycle trace |
+| `.output/reference/execution-summary.json` | 每次 receive 的 recompute、reuse、emitted work 摘要 |
+| `.output/reference/savings.json` | deterministic recomputation-savings report placeholder |
+| `.output/reference/manifest.json` | artifact bundle index，給 report 或後續工具讀取 |
+
+這裡的價值是把「reference scenario」從文件描述推進到可重現的 runner。後續如果要比較 style-only update 和 claim-changing update 的差異，就可以直接基於這個穩定輸出路徑繼續加 transitions、savings 計算與 benchmark narrative。

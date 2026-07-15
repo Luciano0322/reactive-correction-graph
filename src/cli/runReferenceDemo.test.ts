@@ -106,7 +106,7 @@ describe("reference demo CLI", () => {
           description: "A broken reference scenario.",
           initialUserIntent: "Explain the broken fixture.",
           styleOnlyStyleGuide: "Use concise language.",
-          claimChangingDraftAppendix: "A changed claim.",
+          claimChangingDraftChange: "A changed claim.",
           executionBoundary: {
             provider: "mock",
             requiresNetwork: false,

@@ -9,7 +9,7 @@
   "description": "A technical article correction scenario that turns the reactive runtime into an application-level recomputation and traceability demo.",
   "initialUserIntent": "Explain how Reactive Correction Graph reduces unnecessary agent recomputation.",
   "styleOnlyStyleGuide": "# Reference Style Guide\n\n- Use more concise technical language.\n- Prefer concrete evidence over broad benchmark claims.\n- Explain runtime behavior through observable artifacts.\n- Avoid claiming factual correctness or provider quality from trace data alone.\n",
-  "claimChangingDraftAppendix": "A claim-changing update adds that Reactive Correction Graph can also compare independent evidence sources before accepting a fact-check result.",
+  "claimChangingDraftChange": "A claim-changing update adds that Reactive Correction Graph can also compare independent evidence sources before accepting a fact-check result.",
   "executionBoundary": {
     "provider": "mock",
     "requiresNetwork": false,

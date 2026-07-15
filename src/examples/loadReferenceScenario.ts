@@ -22,7 +22,7 @@ export type ReferenceScenarioMetadata = {
   description: string;
   initialUserIntent: string;
   styleOnlyStyleGuide: string;
-  claimChangingDraftAppendix: string;
+  claimChangingDraftChange: string;
   executionBoundary: ReferenceScenarioExecutionBoundary;
   transitions: ReferenceScenarioTransitionMetadata[];
 };
@@ -95,7 +95,7 @@ export async function loadReferenceScenario(
       styleGuide: metadata.styleOnlyStyleGuide,
     },
     claimChanging: {
-      draft: `${initialDraft.trim()}\n\n${metadata.claimChangingDraftAppendix}\n`,
+      draft: `${metadata.claimChangingDraftChange}\n\n${initialDraft.trim()}\n`,
       userIntent: metadata.initialUserIntent,
       styleGuide: metadata.styleOnlyStyleGuide,
     },

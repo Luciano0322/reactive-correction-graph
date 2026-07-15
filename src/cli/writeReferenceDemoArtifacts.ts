@@ -23,7 +23,9 @@ export async function writeReferenceDemoArtifacts(
 ): Promise<ArtifactBundleManifest> {
   const executionSummaryReport: ReceiveExecutionSummaryReport = {
     schemaVersion: 1,
-    summaries: [projectReceiveExecutionSummary(run.trace, 1)],
+    summaries: run.receives.map((receive) =>
+      projectReceiveExecutionSummary(run.trace, receive.receiveEpoch),
+    ),
   };
   const savingsReport: RecomputeSavingsReport = {
     schemaVersion: 1,

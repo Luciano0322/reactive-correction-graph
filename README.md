@@ -185,6 +185,21 @@ The reference runner writes:
 | `.output/reference/savings.json` | Deterministic recomputation-savings report placeholder |
 | `.output/reference/manifest.json` | Artifact bundle index for report and tooling consumers |
 
+## Reference Scenario Transitions
+
+The reference scenario turns the recomputation-savings story into three ordered
+receives:
+
+| Transition | Runtime story | Evidence |
+| --- | --- | --- |
+| `initial` | Establishes the baseline; `recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 1 in `.output/reference/execution-summary.json` |
+| `style-only` | Keeps draft claims stable and changes style guidance; this produces one avoided fact-check call with `reused: factCheck` and `recomputed: styleReview, rewriteDraft` | receive epoch 2 in `.output/reference/execution-summary.json` and `.output/reference/savings.json` |
+| `claim-changing` | Changes draft claims; the runtime must not reuse stale claim coverage, so it records `recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 3 in `.output/reference/execution-summary.json` |
+
+This proves a scoped recomputation story: a stable claim set can reuse settled
+fact-check work, while a changed claim set recomputes it. It does not prove
+general quality claims: it does not prove token savings, latency savings, provider quality, or factual correctness.
+
 ## Architecture
 
 ```mermaid

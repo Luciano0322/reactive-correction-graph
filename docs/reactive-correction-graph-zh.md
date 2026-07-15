@@ -1801,3 +1801,15 @@ pnpm run demo:reference -- --output-dir ./.output/reference
 | `.output/reference/manifest.json` | artifact bundle index，給 report 或後續工具讀取 |
 
 這裡的價值是把「reference scenario」從文件描述推進到可重現的 runner。後續如果要比較 style-only update 和 claim-changing update 的差異，就可以直接基於這個穩定輸出路徑繼續加 transitions、savings 計算與 benchmark narrative。
+
+## Task 44：Reference Scenario Transitions
+
+Task 44 把 `demo:reference` 從「可以跑出 artifact bundle」推進到「可以說清楚 recomputation-savings story」。這裡的重點不是宣稱模型品質變好，而是讓三個固定 transition 對應到 runtime trace 和 execution summary。
+
+| Transition | Runtime story | Evidence |
+| --- | --- | --- |
+| `initial` | 建立 baseline；`recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 1 in `.output/reference/execution-summary.json` |
+| `style-only` | draft claims 穩定，只改 style guidance；這代表 one avoided fact-check call，summary 會顯示 `reused: factCheck` 與 `recomputed: styleReview, rewriteDraft` | receive epoch 2 in `.output/reference/execution-summary.json` and `.output/reference/savings.json` |
+| `claim-changing` | draft claims 改變，所以 runtime 不應 reuse stale claim coverage；summary 會顯示 `recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 3 in `.output/reference/execution-summary.json` |
+
+這個 transition mapping 證明的是一個很窄但重要的應用價值：當 claim set 穩定時，settled fact-check work 可以被 reuse；當 claim set 改變時，factCheck 必須 recompute。它 does not prove token savings, latency savings, provider quality, or factual correctness。

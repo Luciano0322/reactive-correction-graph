@@ -35,13 +35,40 @@ export type EvidenceReportScenarioViewModel = {
   operations: EvidenceReportOperationViewModel[];
 };
 
+export type EvidenceReportApplicationScenarioTransitionViewModel = {
+  key: "initial" | "style-only" | "claim-changing";
+  label: string;
+  receiveEpoch: number;
+  changed: string;
+  outcome: string;
+  recomputed: string[];
+  reused: string[];
+  superseded: string[];
+  emitted: string[];
+  evidence: string;
+  evidenceStatus: "available" | "missing";
+  reuseDecision: string;
+};
+
+export type EvidenceReportApplicationScenarioViewModel = {
+  key: "reference-correction";
+  label: "Technical article correction reference scenario";
+  evidence: {
+    executionSummaryArtifact: string;
+    savingsArtifact: string;
+  };
+  transitions: EvidenceReportApplicationScenarioTransitionViewModel[];
+  proves: string[];
+  limits: string[];
+};
+
 export type EvidenceReportViewModel = {
   title: "Reactive Correction Evidence Report";
   run: {
     id: string;
     generatedAt: string;
-    command: "demo:compare";
-    provider: "deterministic-mock";
+    command: "demo:compare" | "demo:reference";
+    provider: "deterministic-mock" | "ollama";
   };
   reliability: {
     structuralVerdict: StructuralReliabilityVerdict;
@@ -82,6 +109,7 @@ export type EvidenceReportViewModel = {
   };
   evidenceLimits: string[];
   scenarios: EvidenceReportScenarioViewModel[];
+  applicationScenario?: EvidenceReportApplicationScenarioViewModel;
 };
 
 const SCENARIO_LABELS = {
@@ -115,11 +143,50 @@ const EVIDENCE_LIMITS = [
 export function createEvidenceReportViewModel(
   bundle: LoadedArtifactBundle,
 ): EvidenceReportViewModel {
-  const comparison = artifactContent<CorrectionComparisonReport>(
+  const scorecard = optionalArtifactContent<StructuralReliabilityScorecard>(
     bundle,
-    "comparison",
-    "correction-comparison",
+    "scorecard",
+    "structural-reliability-scorecard",
   );
+  const baseViewModel: Omit<
+    EvidenceReportViewModel,
+    "scenarios" | "applicationScenario"
+  > = {
+    title: "Reactive Correction Evidence Report",
+    run: {
+      id: bundle.manifest.run.id,
+      generatedAt: bundle.manifest.run.generatedAt,
+      command: reportCommand(bundle),
+      provider: bundle.manifest.run.provider,
+    },
+    reliability: reliabilityViewModel(scorecard),
+    ...evidenceActivityViewModel(scorecard),
+    evidenceLimits: [...EVIDENCE_LIMITS],
+  };
+
+  if (bundle.manifest.run.command === "demo:reference") {
+    const executionSummary = optionalArtifactContent<ReceiveExecutionSummaryReport>(
+      bundle,
+      "executionSummary",
+      "receive-execution-summaries",
+    );
+    const savings = optionalArtifactContent<RecomputeSavingsReport>(
+      bundle,
+      "savings",
+      "recompute-savings",
+    );
+
+    return {
+      ...baseViewModel,
+      scenarios: [],
+      applicationScenario: referenceApplicationScenarioViewModel(
+        bundle,
+        executionSummary,
+        savings,
+      ),
+    };
+  }
+
   const savings = artifactContent<RecomputeSavingsReport>(
     bundle,
     "savings",
@@ -130,23 +197,14 @@ export function createEvidenceReportViewModel(
     "executionSummary",
     "receive-execution-summaries",
   );
-  const scorecard = optionalArtifactContent<StructuralReliabilityScorecard>(
+  const comparison = artifactContent<CorrectionComparisonReport>(
     bundle,
-    "scorecard",
-    "structural-reliability-scorecard",
+    "comparison",
+    "correction-comparison",
   );
 
   return {
-    title: "Reactive Correction Evidence Report",
-    run: {
-      id: bundle.manifest.run.id,
-      generatedAt: bundle.manifest.run.generatedAt,
-      command: "demo:compare",
-      provider: "deterministic-mock",
-    },
-    reliability: reliabilityViewModel(scorecard),
-    ...evidenceActivityViewModel(scorecard),
-    evidenceLimits: [...EVIDENCE_LIMITS],
+    ...baseViewModel,
     scenarios: savings.scenarios.map((scenario, index) => {
       const comparisonScenario = comparison.scenarios.find(
         (candidate) => candidate.scenario === scenario.scenario,
@@ -185,6 +243,158 @@ export function createEvidenceReportViewModel(
       };
     }),
   };
+}
+
+function referenceApplicationScenarioViewModel(
+  bundle: LoadedArtifactBundle,
+  executionSummary: ReceiveExecutionSummaryReport | null,
+  _savings: RecomputeSavingsReport | null,
+): EvidenceReportApplicationScenarioViewModel {
+  const executionSummaryArtifact = compatibleArtifactPath(
+    bundle,
+    "executionSummary",
+  );
+  const savingsArtifact = compatibleArtifactPath(bundle, "savings");
+
+  return {
+    key: "reference-correction",
+    label: "Technical article correction reference scenario",
+    evidence: {
+      executionSummaryArtifact,
+      savingsArtifact,
+    },
+    transitions: [
+      referenceTransitionViewModel(
+        executionSummary,
+        executionSummaryArtifact,
+        {
+          key: "initial",
+          label: "Initial baseline",
+          receiveEpoch: 1,
+          changed: "Initial draft and style guide",
+          outcome: "Baseline correction work is established",
+        },
+      ),
+      referenceTransitionViewModel(
+        executionSummary,
+        executionSummaryArtifact,
+        {
+          key: "style-only",
+          label: "Style-only update",
+          receiveEpoch: 2,
+          changed: "Style guidance changes while claims stay stable",
+          outcome: "Avoided fact-check call",
+        },
+      ),
+      referenceTransitionViewModel(
+        executionSummary,
+        executionSummaryArtifact,
+        {
+          key: "claim-changing",
+          label: "Claim-changing update",
+          receiveEpoch: 3,
+          changed: "Draft claims change",
+          outcome: "Fact-check work recomputes",
+        },
+      ),
+    ],
+    proves: [
+      "Style-only updates can reuse settled fact-check work when claims stay stable.",
+      "Claim-changing updates recompute fact-check work when claims change.",
+    ],
+    limits: [
+      "This application report does not prove factual correctness, provider quality, latency savings, token savings, or production readiness.",
+    ],
+  };
+}
+
+function referenceTransitionViewModel(
+  executionSummary: ReceiveExecutionSummaryReport | null,
+  executionSummaryArtifact: string,
+  input: Pick<
+    EvidenceReportApplicationScenarioTransitionViewModel,
+    "key" | "label" | "receiveEpoch" | "changed" | "outcome"
+  >,
+): EvidenceReportApplicationScenarioTransitionViewModel {
+  const summary = executionSummary?.summaries.find(
+    (candidate) => candidate.receiveEpoch === input.receiveEpoch,
+  );
+
+  if (!summary) {
+    return {
+      ...input,
+      recomputed: [],
+      reused: [],
+      superseded: [],
+      emitted: [],
+      evidence: referenceReceiveEvidence(
+        executionSummaryArtifact,
+        input.receiveEpoch,
+      ),
+      evidenceStatus: "missing",
+      reuseDecision:
+        "Execution evidence is unavailable for this receive; no reuse decision can be verified.",
+    };
+  }
+
+  return {
+    ...input,
+    recomputed: workLabels(summary.recomputed),
+    reused: workLabels(summary.reused),
+    superseded: workLabels(summary.superseded),
+    emitted: workLabels(summary.emitted),
+    evidence: referenceReceiveEvidence(
+      executionSummaryArtifact,
+      input.receiveEpoch,
+    ),
+    evidenceStatus: "available",
+    reuseDecision: referenceReuseDecision(input.key),
+  };
+}
+
+function compatibleArtifactPath(
+  bundle: LoadedArtifactBundle,
+  name: "executionSummary" | "savings",
+): string {
+  return bundle.artifacts[name]?.path ?? "Not available";
+}
+
+function referenceReceiveEvidence(
+  executionSummaryArtifact: string,
+  receiveEpoch: number,
+): string {
+  if (executionSummaryArtifact === "Not available") {
+    return "Not available";
+  }
+
+  return `${executionSummaryArtifact}#receive-${receiveEpoch}`;
+}
+
+function referenceReuseDecision(
+  key: EvidenceReportApplicationScenarioTransitionViewModel["key"],
+) {
+  if (key === "initial") {
+    return "No previous settled correction work is available for the baseline receive.";
+  }
+
+  if (key === "style-only") {
+    return "Draft claims stayed stable, so settled fact-check work remained current.";
+  }
+
+  return "Draft claims changed, so previous fact-check coverage was not reused.";
+}
+
+function reportCommand(bundle: LoadedArtifactBundle) {
+  if (
+    bundle.manifest.run.command !== "demo:compare" &&
+    bundle.manifest.run.command !== "demo:reference"
+  ) {
+    throw new Error(
+      `Unsupported evidence report command: ${bundle.manifest.run.command}`,
+    );
+  }
+
+  return bundle.manifest.run.command;
 }
 
 function evidenceActivityViewModel(
@@ -251,7 +461,7 @@ function workLabels(labels: string[]): string[] {
 
 function optionalArtifactContent<T>(
   bundle: LoadedArtifactBundle,
-  name: "scorecard",
+  name: "scorecard" | "executionSummary" | "savings",
   schemaName: string,
 ): T | null {
   const artifact = bundle.artifacts[name];

@@ -1813,3 +1813,19 @@ Task 44 把 `demo:reference` 從「可以跑出 artifact bundle」推進到「�
 | `claim-changing` | draft claims 改變，所以 runtime 不應 reuse stale claim coverage；summary 會顯示 `recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 3 in `.output/reference/execution-summary.json` |
 
 這個 transition mapping 證明的是一個很窄但重要的應用價值：當 claim set 穩定時，settled fact-check work 可以被 reuse；當 claim set 改變時，factCheck 必須 recompute。它 does not prove token savings, latency savings, provider quality, or factual correctness。
+
+## Task 45：Application Evidence Report
+
+Task 45 把 Task 44 的 artifacts 轉成可以閱讀的 application report。這份 report 的定位不是 model-quality scorecard，而是 reference application scenario 的 evidence map。讀 `.output/report.html` 時，我會建議用 receive 的順序由上往下看。Read the report from top to bottom by receive.
+
+Reading order:
+
+- `Initial baseline`：先確認 baseline correction work 是否建立。
+- `Style-only update`：確認 style guidance 改變時，fact-check work 是否可以 reuse。
+- `Claim-changing update`：確認 claims 改變時，fact-check work 是否重新 recompute。
+- `Evidence status`：確認這個 receive 的 artifact evidence 是否存在。
+- `Reuse decision`：解釋為什麼 reuse 是有效的，或為什麼目前無法驗證 reuse。
+- `What this scenario proves`：說明 report 可以支撐的 scoped recomputation behavior。
+- `What this scenario does not prove`：說明 report 不能支撐的 quality 或 production claims。
+
+Missing evidence means the artifact bundle is incomplete; it is not counted as verified reuse. 這點很重要，因為 partial artifact 只能代表目前 evidence 不完整，不能被解讀成「已經驗證通過」。這份 application report does not prove factual correctness, provider quality, latency savings, token savings, or production readiness。

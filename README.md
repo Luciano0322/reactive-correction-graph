@@ -200,6 +200,30 @@ This proves a scoped recomputation story: a stable claim set can reuse settled
 fact-check work, while a changed claim set recomputes it. It does not prove
 general quality claims: it does not prove token savings, latency savings, provider quality, or factual correctness.
 
+## Application Evidence Report
+
+When `.output/report.html` is generated from a reference artifact bundle, read
+it as an evidence map for the application scenario, not as a model-quality
+scorecard. Read the report from top to bottom by receive.
+
+Reading order:
+
+- `Initial baseline`: confirms the baseline correction work was established.
+- `Style-only update`: checks whether style guidance changed while fact-check
+  work could be reused.
+- `Claim-changing update`: checks whether changed claims forced fact-check work
+  to recompute.
+- `Evidence status`: shows whether the receive-level artifact evidence was
+  available.
+- `Reuse decision`: explains why reuse was valid, or why reuse could not be
+  verified.
+- `What this scenario proves`: states the scoped recomputation behavior the
+  report can support.
+- `What this scenario does not prove`: states the quality and production claims
+  the report cannot support.
+
+Missing evidence means the artifact bundle is incomplete; it is not counted as verified reuse. This application report does not prove factual correctness, provider quality, latency savings, token savings, or production readiness.
+
 ## Architecture
 
 ```mermaid

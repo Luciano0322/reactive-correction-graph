@@ -156,6 +156,146 @@ describe("createEvidenceReportViewModel", () => {
       },
     });
   });
+
+  it("projects reference scenario evidence from a demo:reference bundle", () => {
+    const viewModel = createEvidenceReportViewModel(referenceBundle());
+
+    expect({
+      run: viewModel.run,
+      scenarios: viewModel.scenarios,
+      applicationScenario: viewModel.applicationScenario,
+    }).toEqual({
+      run: {
+        id: "reference-run-001",
+        generatedAt: "2026-07-03T00:00:00.000Z",
+        command: "demo:reference",
+        provider: "deterministic-mock",
+      },
+      scenarios: [],
+      applicationScenario: {
+        key: "reference-correction",
+        label: "Technical article correction reference scenario",
+        evidence: {
+          executionSummaryArtifact: "execution-summary.json",
+          savingsArtifact: "savings.json",
+        },
+        transitions: [
+          {
+            key: "initial",
+            label: "Initial baseline",
+            receiveEpoch: 1,
+            changed: "Initial draft and style guide",
+            outcome: "Baseline correction work is established",
+            recomputed: ["Fact check", "Style review", "Rewrite draft"],
+            reused: [],
+            superseded: [],
+            emitted: ["Final result"],
+            evidence: "execution-summary.json#receive-1",
+            evidenceStatus: "available",
+            reuseDecision:
+              "No previous settled correction work is available for the baseline receive.",
+          },
+          {
+            key: "style-only",
+            label: "Style-only update",
+            receiveEpoch: 2,
+            changed: "Style guidance changes while claims stay stable",
+            outcome: "Avoided fact-check call",
+            recomputed: ["Style review", "Rewrite draft"],
+            reused: ["Fact check"],
+            superseded: [],
+            emitted: ["Final result"],
+            evidence: "execution-summary.json#receive-2",
+            evidenceStatus: "available",
+            reuseDecision:
+              "Draft claims stayed stable, so settled fact-check work remained current.",
+          },
+          {
+            key: "claim-changing",
+            label: "Claim-changing update",
+            receiveEpoch: 3,
+            changed: "Draft claims change",
+            outcome: "Fact-check work recomputes",
+            recomputed: ["Fact check", "Style review", "Rewrite draft"],
+            reused: [],
+            superseded: [],
+            emitted: ["Final result"],
+            evidence: "execution-summary.json#receive-3",
+            evidenceStatus: "available",
+            reuseDecision:
+              "Draft claims changed, so previous fact-check coverage was not reused.",
+          },
+        ],
+        proves: [
+          "Style-only updates can reuse settled fact-check work when claims stay stable.",
+          "Claim-changing updates recompute fact-check work when claims change.",
+        ],
+        limits: [
+          "This application report does not prove factual correctness, provider quality, latency savings, token savings, or production readiness.",
+        ],
+      },
+    });
+  });
+
+  it("keeps reference scenario reporting readable with missing or partial evidence artifacts", () => {
+    const viewModel = createEvidenceReportViewModel(
+      referenceBundle({
+        includeSavings: false,
+        summaries: [
+          {
+            receiveEpoch: 2,
+            recomputed: ["styleReview", "rewriteDraft"],
+            reused: ["factCheck"],
+            superseded: [],
+            emitted: ["finalResult"],
+          },
+        ],
+      }),
+    );
+
+    expect(viewModel.applicationScenario?.evidence).toEqual({
+      executionSummaryArtifact: "execution-summary.json",
+      savingsArtifact: "Not available",
+    });
+    expect(
+      viewModel.applicationScenario?.transitions.map((transition) => ({
+        key: transition.key,
+        evidenceStatus: transition.evidenceStatus,
+        recomputed: transition.recomputed,
+        reused: transition.reused,
+        evidence: transition.evidence,
+        reuseDecision: transition.reuseDecision,
+      })),
+    ).toEqual([
+      {
+        key: "initial",
+        evidenceStatus: "missing",
+        recomputed: [],
+        reused: [],
+        evidence: "execution-summary.json#receive-1",
+        reuseDecision:
+          "Execution evidence is unavailable for this receive; no reuse decision can be verified.",
+      },
+      {
+        key: "style-only",
+        evidenceStatus: "available",
+        recomputed: ["Style review", "Rewrite draft"],
+        reused: ["Fact check"],
+        evidence: "execution-summary.json#receive-2",
+        reuseDecision:
+          "Draft claims stayed stable, so settled fact-check work remained current.",
+      },
+      {
+        key: "claim-changing",
+        evidenceStatus: "missing",
+        recomputed: [],
+        reused: [],
+        evidence: "execution-summary.json#receive-3",
+        reuseDecision:
+          "Execution evidence is unavailable for this receive; no reuse decision can be verified.",
+      },
+    ]);
+  });
 });
 
 function comparisonBundle(
@@ -300,6 +440,123 @@ function comparisonBundle(
             scorecard: {
               ...manifest.artifacts.scorecard!,
               content: scorecard,
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+function referenceBundle(
+  options: {
+    includeSavings?: boolean;
+    summaries?: Array<{
+      receiveEpoch: number;
+      recomputed: string[];
+      reused: string[];
+      superseded: string[];
+      emitted: string[];
+    }>;
+  } = {},
+): LoadedArtifactBundle {
+  const includeSavings = options.includeSavings ?? true;
+  const summaries = options.summaries ?? [
+    {
+      receiveEpoch: 1,
+      recomputed: ["factCheck", "styleReview", "rewriteDraft"],
+      reused: [],
+      superseded: [],
+      emitted: ["finalResult"],
+    },
+    {
+      receiveEpoch: 2,
+      recomputed: ["styleReview", "rewriteDraft"],
+      reused: ["factCheck"],
+      superseded: [],
+      emitted: ["finalResult"],
+    },
+    {
+      receiveEpoch: 3,
+      recomputed: ["factCheck", "styleReview", "rewriteDraft"],
+      reused: [],
+      superseded: [],
+      emitted: ["finalResult"],
+    },
+  ];
+  const manifest = createArtifactBundleManifest(
+    {
+      command: "demo:reference",
+      mode: "runtime",
+      provider: "deterministic-mock",
+      artifacts: {
+        result: {
+          path: "result.md",
+          mediaType: "text/markdown",
+          schema: null,
+        },
+        state: {
+          path: "state.json",
+          mediaType: "application/json",
+          schema: { name: "correction-state", version: 1 },
+        },
+        trace: {
+          path: "trace.json",
+          mediaType: "application/json",
+          schema: { name: "trace-events", version: 1 },
+        },
+        executionSummary: {
+          path: "execution-summary.json",
+          mediaType: "application/json",
+          schema: { name: "receive-execution-summaries", version: 1 },
+        },
+        ...(includeSavings
+          ? {
+              savings: {
+                path: "savings.json",
+                mediaType: "application/json" as const,
+                schema: { name: "recompute-savings", version: 1 },
+              },
+            }
+          : {}),
+      },
+    },
+    {
+      createRunId: () => "reference-run-001",
+      now: () => new Date("2026-07-03T00:00:00.000Z"),
+    },
+  );
+
+  return {
+    manifest,
+    artifacts: {
+      result: {
+        ...manifest.artifacts.result!,
+        content: "# Reference Result",
+      },
+      state: {
+        ...manifest.artifacts.state!,
+        content: {},
+      },
+      trace: {
+        ...manifest.artifacts.trace!,
+        content: [],
+      },
+      executionSummary: {
+        ...manifest.artifacts.executionSummary!,
+        content: {
+          schemaVersion: 1,
+          summaries,
+        },
+      },
+      ...(includeSavings
+        ? {
+            savings: {
+              ...manifest.artifacts.savings!,
+              content: {
+                schemaVersion: 1,
+                provider: "deterministic-mock",
+                scenarios: [],
+              },
             },
           }
         : {}),

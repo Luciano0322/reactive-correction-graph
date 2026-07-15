@@ -1829,3 +1829,42 @@ Reading order:
 - `What this scenario does not prove`：說明 report 不能支撐的 quality 或 production claims。
 
 Missing evidence means the artifact bundle is incomplete; it is not counted as verified reuse. 這點很重要，因為 partial artifact 只能代表目前 evidence 不完整，不能被解讀成「已經驗證通過」。這份 application report does not prove factual correctness, provider quality, latency savings, token savings, or production readiness。
+## Task 46：Reference Demo Path
+
+Task 46 把 README 的 reference demo path 鏡像到中文技術文章，讓未來文章讀者可以直接從 command 走到 evidence artifacts。Reference Demo Path 的最短入口是：
+
+```bash
+pnpm run demo:reference
+```
+
+Inspect these artifacts after the command finishes:
+
+- `.output/reference/result.md`
+- `.output/reference/state.json`
+- `.output/reference/trace.json`
+- `.output/reference/execution-summary.json`
+- `.output/reference/savings.json`
+- `.output/reference/manifest.json`
+
+Optional Ollama evaluation is a provider compatibility check, not a quality proof.
+
+```bash
+pnpm run evaluate:ollama
+```
+
+Ollama 這條路徑是手動 provider compatibility evaluation。執行前先看 `docs/local-llm-provider.md`，並且不要把它解讀成 correction quality、factual correctness 或 production benchmark 的證明。
+
+This reference demo is not a complete product or production benchmark.
+It does not prove production readiness, latency, cost, token savings, provider quality, or factual correctness.
+
+Final demo narrative:
+
+- `pnpm run demo:reference` is the CLI entry point.
+- `src/index.ts` is the public SDK boundary.
+- `src/examples/langGraphReferenceWorkflow.ts` shows the LangGraph orchestration boundary.
+- The application evidence report explains the saved runtime evidence.
+- `src/examples/reference-scenario.json` defines the reference scenario.
+
+這段 narrative 把 CLI、SDK、LangGraph、report 和 reference scenario 串成同一條路徑：CLI 產出可檢查 artifact，SDK 定義外部使用邊界，LangGraph example 說明 orchestration 分工，application evidence report 解釋 runtime evidence，而 reference scenario fixture 則固定輸入與 transition。
+
+這段的目的不是新增新的 runtime 能力，而是把 Task 43 到 Task 45 的 reference demo 串成可閱讀的路徑：先跑 deterministic reference scenario，再檢查 artifacts，最後用 report 或 execution summary 回頭理解 reuse 與 recomputation 的證據。

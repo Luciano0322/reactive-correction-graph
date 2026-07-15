@@ -131,6 +131,52 @@ Then read the public SDK examples and LangGraph reference examples:
 - [src/examples/langGraphReferenceWorkflow.ts](./src/examples/langGraphReferenceWorkflow.ts)
 - [src/examples/langGraphPersistentSessionWorkflow.ts](./src/examples/langGraphPersistentSessionWorkflow.ts)
 
+## Reference Demo Path
+
+Run the application-level reference demo with:
+
+```bash
+pnpm run demo:reference
+```
+
+This is the shortest path for seeing the deterministic reference scenario
+produce reusable evidence artifacts before optional provider evaluation is
+introduced.
+
+Inspect these artifacts after the command finishes:
+
+- `.output/reference/result.md`
+- `.output/reference/state.json`
+- `.output/reference/trace.json`
+- `.output/reference/execution-summary.json`
+- `.output/reference/savings.json`
+- `.output/reference/manifest.json`
+
+Optional Ollama evaluation is a provider compatibility check, not a quality proof.
+
+```bash
+pnpm run evaluate:ollama
+```
+
+See [docs/local-llm-provider.md](./docs/local-llm-provider.md) before using
+that manual path. Keep `demo:reference` mock-first and deterministic; Ollama
+does not replace the reference artifact checklist.
+
+This reference demo is not a complete product or production benchmark.
+It does not prove production readiness, latency, cost, token savings, provider quality, or factual correctness.
+
+Final demo narrative:
+
+- `pnpm run demo:reference` is the CLI entry point.
+- `src/index.ts` is the public SDK boundary.
+- `src/examples/langGraphReferenceWorkflow.ts` shows the LangGraph orchestration boundary.
+- The application evidence report explains the saved runtime evidence.
+- `src/examples/reference-scenario.json` defines the reference scenario.
+
+Together, these pieces show the same recomputation story from a local command
+to SDK boundary, LangGraph integration, artifact evidence, and report
+narrative.
+
 ## Reference Scenario Definition
 
 The next application layer starts with a fixed technical article correction

@@ -31,6 +31,7 @@ const expectedReferenceArtifacts = [
   ".output/reference/trace.json",
   ".output/reference/execution-summary.json",
   ".output/reference/savings.json",
+  ".output/reference/scorecard.json",
   ".output/reference/manifest.json",
 ] as const;
 
@@ -85,6 +86,23 @@ describe("reference demo path documentation", () => {
       );
       expect(section).toContain("pnpm run evaluate:ollama");
       expect(section).toContain("docs/local-llm-provider.md");
+    }
+  });
+
+  it("explains the reference scorecard quality boundary", async () => {
+    const readme = await readFile("README.md", "utf8");
+    const readmeSection = extractSection(readme, "## Reference Demo Path");
+    const article = await readFile(
+      "docs/reactive-correction-graph-zh.md",
+      "utf8",
+    );
+    const articleSection = extractTaskSection(article, "Task 46");
+
+    for (const section of [readmeSection, articleSection]) {
+      expect(section).toContain(".output/reference/scorecard.json");
+      expect(section).toContain(
+        "subjectiveCorrectionQuality: not-evaluated",
+      );
     }
   });
 

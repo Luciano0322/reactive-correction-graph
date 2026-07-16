@@ -11,7 +11,7 @@ import {
 } from "../session/createCorrectionSession.js";
 import type { TraceEvent } from "../trace/types.js";
 
-export type ReferenceScenarioRunOptions = CorrectionSessionOptions & {
+export type ReferenceScenarioRunOptions = Omit<CorrectionSessionOptions, "model"> & {
   scenarioBaseUrl?: URL;
   transitionId?: ReferenceScenarioTransitionId;
 };
@@ -37,8 +37,9 @@ export async function runReferenceScenario(
   const {
     scenarioBaseUrl,
     transitionId,
+    model: _ignoredModel,
     ...sessionOptions
-  } = options;
+  } = options as ReferenceScenarioRunOptions & Pick<CorrectionSessionOptions, "model">;
   const scenario = await loadReferenceScenario({
     fixtureBaseUrl: scenarioBaseUrl,
   });

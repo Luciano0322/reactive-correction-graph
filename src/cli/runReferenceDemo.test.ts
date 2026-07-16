@@ -51,6 +51,7 @@ describe("reference demo CLI", () => {
           "trace",
           "executionSummary",
           "savings",
+          "scorecard",
         ],
         result: expect.objectContaining({
           path: "result.md",

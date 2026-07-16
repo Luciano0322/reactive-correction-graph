@@ -150,7 +150,12 @@ Inspect these artifacts after the command finishes:
 - `.output/reference/trace.json`
 - `.output/reference/execution-summary.json`
 - `.output/reference/savings.json`
+- `.output/reference/scorecard.json`
 - `.output/reference/manifest.json`
+
+`scorecard.json` keeps the evaluation boundary explicit:
+`subjectiveCorrectionQuality: not-evaluated`. Deterministic execution evidence
+does not become a claim about correction quality.
 
 Optional Ollama evaluation is a provider compatibility check, not a quality proof.
 
@@ -176,6 +181,40 @@ Final demo narrative:
 Together, these pieces show the same recomputation story from a local command
 to SDK boundary, LangGraph integration, artifact evidence, and report
 narrative.
+
+## Reference Demo Guardrails
+
+These guardrails protect the reference demo from unsupported benchmark and replacement claims.
+
+Do not describe the reference demo as a:
+
+- factual correctness benchmark
+- general LLM quality benchmark
+- latency or cost benchmark
+- LangGraph replacement
+- LangSmith replacement
+- framework-specific web adapter requirement
+- production durability guarantee
+
+The correct positioning is: application-level recomputation and traceability demo.
+
+Ollama/manual evaluation remains opt-in and documented separately. Use
+[`docs/local-llm-provider.md`](./docs/local-llm-provider.md) and
+`pnpm run evaluate:ollama` only when deliberately checking provider
+compatibility; `pnpm run demo:reference` always remains the deterministic mock
+path.
+
+### Final positioning summary
+
+- `pnpm run demo:reference` is deterministic and mock-first.
+- `pnpm run evaluate:ollama` is an opt-in provider compatibility path, not
+  model quality evidence.
+- `scorecard.json` preserves `subjectiveCorrectionQuality: not-evaluated`.
+- Reference examples consume the SDK through the `reactive-correction-graph`
+  package root.
+- This project demonstrates application-level selective recomputation,
+  traceability, and integration boundaries. It does not prove model quality or
+  production readiness.
 
 ## Reference Scenario Definition
 

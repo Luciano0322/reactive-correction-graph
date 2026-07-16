@@ -34,6 +34,32 @@ describe("runReferenceScenario", () => {
     });
   });
 
+  it("keeps the reference run on the deterministic mock model even when model-like options are present", async () => {
+    const forbiddenModel = {
+      factCheckClaims: async () => {
+        throw new Error("reference demo must not use an injected fact checker");
+      },
+      reviewStyle: async () => {
+        throw new Error("reference demo must not use an injected style reviewer");
+      },
+      rewriteDraft: async () => {
+        throw new Error("reference demo must not use an injected rewriter");
+      },
+    };
+    const run = await runReferenceScenario({
+      transitionId: "initial",
+      model: forbiddenModel,
+    } as unknown as Parameters<typeof runReferenceScenario>[0]);
+
+    expect({
+      provider: run.provider,
+      revisedDraft: run.state.finalResult?.revisedDraft,
+    }).toEqual({
+      provider: "deterministic-mock",
+      revisedDraft: expect.stringContaining("Mock correction notes"),
+    });
+  });
+
   it("runs the default reference scenario as multiple receive epochs", async () => {
     const run = await runReferenceScenario();
     const receiveStartedEpochs = run.trace

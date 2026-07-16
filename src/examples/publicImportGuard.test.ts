@@ -9,6 +9,30 @@ const referenceExamples = [
 ] as const;
 
 describe("public import guard for reference examples", () => {
+  it("connects every reference example through the package-root SDK", async () => {
+    const importEntries = await Promise.all(
+      referenceExamples.map(async (fileName) => ({
+        fileName,
+        specifiers: await readImportSpecifiers(fileName),
+      })),
+    );
+
+    expect(
+      importEntries.map(({ fileName, specifiers }) => ({
+        fileName,
+        usesPublicSdk: specifiers.includes("reactive-correction-graph"),
+      })),
+    ).toEqual([
+      { fileName: "minimalSdkUsage.ts", usesPublicSdk: true },
+      { fileName: "langGraphCheckpointUsage.ts", usesPublicSdk: true },
+      { fileName: "langGraphReferenceWorkflow.ts", usesPublicSdk: true },
+      {
+        fileName: "langGraphPersistentSessionWorkflow.ts",
+        usesPublicSdk: true,
+      },
+    ]);
+  });
+
   it("keeps reference examples away from internal source paths", async () => {
     const importEntries = await Promise.all(
       referenceExamples.map(async (fileName) => ({

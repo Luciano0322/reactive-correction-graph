@@ -9,6 +9,10 @@ import {
   serializeRecomputeSavingsReport,
   type RecomputeSavingsReport,
 } from "../comparison/recomputeSavingsReport.js";
+import {
+  createStructuralReliabilityScorecard,
+  serializeStructuralReliabilityScorecard,
+} from "../evaluation/structuralReliabilityScorecard.js";
 import type { ReferenceScenarioRun } from "../reference/runReferenceScenario.js";
 import {
   projectReceiveExecutionSummary,
@@ -32,6 +36,28 @@ export async function writeReferenceDemoArtifacts(
     provider: run.provider,
     scenarios: [],
   };
+  const scorecard = createStructuralReliabilityScorecard({
+    policyVersion: 1,
+    runtimeSettlement: {
+      settledRuns: run.receives.length,
+      rejectedRuns: 0,
+    },
+    providerCompatibility: null,
+    claimCoverage: null,
+    unknownIdContainment: null,
+    contractEvidence: {
+      staleResultProtection: "not-evaluated",
+      finalResultIntegrity: "not-evaluated",
+      sessionIsolation: "not-evaluated",
+    },
+    executionEfficiency: {
+      savingsReportSchemaVersion: 1,
+      recomputationCalls: executionSummaryReport.summaries.reduce(
+        (total, summary) => total + summary.recomputed.length,
+        0,
+      ),
+    },
+  });
   const manifest = createArtifactBundleManifest({
     command: "demo:reference",
     mode: "runtime",
@@ -62,6 +88,11 @@ export async function writeReferenceDemoArtifacts(
         mediaType: "application/json",
         schema: { name: "recompute-savings", version: 1 },
       },
+      scorecard: {
+        path: "scorecard.json",
+        mediaType: "application/json",
+        schema: { name: "structural-reliability-scorecard", version: 1 },
+      },
     },
   });
 
@@ -90,6 +121,11 @@ export async function writeReferenceDemoArtifacts(
     writeFile(
       resolve(outputDir, "savings.json"),
       serializeRecomputeSavingsReport(savingsReport),
+      "utf8",
+    ),
+    writeFile(
+      resolve(outputDir, "scorecard.json"),
+      serializeStructuralReliabilityScorecard(scorecard),
       "utf8",
     ),
     writeFile(

@@ -1844,7 +1844,12 @@ Inspect these artifacts after the command finishes:
 - `.output/reference/trace.json`
 - `.output/reference/execution-summary.json`
 - `.output/reference/savings.json`
+- `.output/reference/scorecard.json`
 - `.output/reference/manifest.json`
+
+`scorecard.json` 會明確保留品質評估邊界：
+`subjectiveCorrectionQuality: not-evaluated`。deterministic execution evidence
+不會被解讀成 correction quality 的證明。
 
 Optional Ollama evaluation is a provider compatibility check, not a quality proof.
 
@@ -1865,6 +1870,45 @@ Final demo narrative:
 - The application evidence report explains the saved runtime evidence.
 - `src/examples/reference-scenario.json` defines the reference scenario.
 
-這段 narrative 把 CLI、SDK、LangGraph、report 和 reference scenario 串成同一條路徑：CLI 產出可檢查 artifact，SDK 定義外部使用邊界，LangGraph example 說明 orchestration 分工，application evidence report 解釋 runtime evidence，而 reference scenario fixture 則固定輸入與 transition。
+## Task 47：Reference Demo Guardrails
 
-這段的目的不是新增新的 runtime 能力，而是把 Task 43 到 Task 45 的 reference demo 串成可閱讀的路徑：先跑 deterministic reference scenario，再檢查 artifacts，最後用 report 或 execution summary 回頭理解 reuse 與 recomputation 的證據。
+Task 43 到 Task 46 已經把 reference scenario、CLI runner、artifacts、report 與操作路徑串了起來。當 demo 開始具備完整敘事後，下一個風險不是功能不足，而是讀者可能把有限的 execution evidence 解讀成更大的產品或模型能力。因此 Task 47 不再擴充 runtime，而是替整條 reference demo path 加上可測試的定位邊界，避免出現 unsupported benchmark and replacement claims。
+
+### 需要守住的界線
+
+不要把 reference demo 描述成：
+
+- factual correctness benchmark
+- general LLM quality benchmark
+- latency or cost benchmark
+- LangGraph replacement
+- LangSmith replacement
+- framework-specific web adapter requirement
+- production durability guarantee
+
+這些限制不是在削弱 demo 的價值，而是要求每一項主張都能回到實際 artifact 與測試。正確定位是：application-level recomputation and traceability demo。
+
+### Guardrail 如何落地
+
+Task 47 的六個切片分別保護不同邊界：
+
+- Task 47a 以 docs test 固定不能宣稱的 benchmark 與 replacement claims。
+- Task 47b 確保 `pnpm run demo:reference` 永遠使用 deterministic mock model，不會因外部設定而偷偷切換 provider。
+- Task 47c 保持真實模型評估為獨立手動路徑。Ollama/manual evaluation remains opt-in and documented separately. 只有需要檢查 provider compatibility 時，才依照 `docs/local-llm-provider.md` 執行 `pnpm run evaluate:ollama`。
+- Task 47d 讓 `scorecard.json` 明確保存 `subjectiveCorrectionQuality: not-evaluated`，避免 execution evidence 被誤讀為品質分數。
+- Task 47e 確保 Reference examples 一律透過 `reactive-correction-graph` package root 使用 SDK，不依賴內部 source paths。
+- Task 47f 將以上邊界收束成 README 與中文文章都能直接引用的最終定位。
+
+換句話說，mock path 負責提供穩定、可重現的 runtime evidence；Ollama path 負責觀察真實 provider compatibility；scorecard 與文件則負責阻止兩者被包裝成 model quality 或 production readiness 的證明。
+
+### Final positioning summary
+
+- `pnpm run demo:reference` 是 deterministic、mock-first 的主要驗證路徑。
+- `pnpm run evaluate:ollama` 是 opt-in provider compatibility path，不是
+  model quality 證據。
+- `scorecard.json` 保留 `subjectiveCorrectionQuality: not-evaluated`。
+- Reference examples 一律透過 `reactive-correction-graph` package root 使用 SDK。
+- 這個專案證明的是 application-level selective recomputation、traceability
+  與 integration boundaries；不證明 model quality 或 production readiness。
+
+到這裡，reference demo 的角色就清楚了：reference scenario 固定輸入與 transitions，CLI 產出可檢查 artifacts，public SDK 定義整合邊界，LangGraph example 展示 orchestration 分工，report 與 scorecard 說明 evidence 及其限制。這條路徑足以驗證 selective recomputation 是否發生、哪些工作被 reuse，以及這些決策能否被追蹤；更大的模型品質與 production claims，則留給未來獨立的評估設計。

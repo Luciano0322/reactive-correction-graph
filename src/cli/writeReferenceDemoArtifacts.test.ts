@@ -7,6 +7,40 @@ import { runReferenceScenario } from "../reference/runReferenceScenario.js";
 import { writeReferenceDemoArtifacts } from "./writeReferenceDemoArtifacts.js";
 
 describe("writeReferenceDemoArtifacts", () => {
+  it("keeps correction quality explicitly unevaluated in the reference artifact bundle", async () => {
+    const outputDir = await mkdtemp(join(tmpdir(), "rcg-reference-artifacts-"));
+
+    try {
+      const run = await runReferenceScenario();
+      await writeReferenceDemoArtifacts(run, outputDir);
+      const bundle = await loadArtifactBundle(outputDir);
+
+      expect(bundle.artifacts.scorecard).toEqual(
+        expect.objectContaining({
+          path: "scorecard.json",
+          mediaType: "application/json",
+          schema: { name: "structural-reliability-scorecard", version: 1 },
+          content: expect.objectContaining({
+            providerCompatibility: {
+              status: "not-evaluated",
+              settledTrials: null,
+              rejectedTrials: null,
+              settlementRate: null,
+            },
+            executionEfficiency: {
+              status: "reported-separately",
+              savingsReportSchemaVersion: 1,
+              recomputationCalls: 8,
+            },
+            subjectiveCorrectionQuality: "not-evaluated",
+          }),
+        }),
+      );
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  });
+
   it("writes result, state, trace, and manifest artifacts for a reference scenario run", async () => {
     const outputDir = await mkdtemp(join(tmpdir(), "rcg-reference-artifacts-"));
 
@@ -25,6 +59,7 @@ describe("writeReferenceDemoArtifacts", () => {
         trace: bundle.artifacts.trace,
         executionSummary: bundle.artifacts.executionSummary,
         savings: bundle.artifacts.savings,
+        scorecard: bundle.artifacts.scorecard,
       }).toEqual({
         returnedCommand: "demo:reference",
         loadedCommand: "demo:reference",
@@ -98,6 +133,14 @@ describe("writeReferenceDemoArtifacts", () => {
             provider: "deterministic-mock",
             scenarios: [],
           },
+        }),
+        scorecard: expect.objectContaining({
+          path: "scorecard.json",
+          mediaType: "application/json",
+          schema: { name: "structural-reliability-scorecard", version: 1 },
+          content: expect.objectContaining({
+            subjectiveCorrectionQuality: "not-evaluated",
+          }),
         }),
       });
     } finally {

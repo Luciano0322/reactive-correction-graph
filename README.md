@@ -131,6 +131,184 @@ Then read the public SDK examples and LangGraph reference examples:
 - [src/examples/langGraphReferenceWorkflow.ts](./src/examples/langGraphReferenceWorkflow.ts)
 - [src/examples/langGraphPersistentSessionWorkflow.ts](./src/examples/langGraphPersistentSessionWorkflow.ts)
 
+## Reference Demo Path
+
+Run the application-level reference demo with:
+
+```bash
+pnpm run demo:reference
+```
+
+This is the shortest path for seeing the deterministic reference scenario
+produce reusable evidence artifacts before optional provider evaluation is
+introduced.
+
+Inspect these artifacts after the command finishes:
+
+- `.output/reference/result.md`
+- `.output/reference/state.json`
+- `.output/reference/trace.json`
+- `.output/reference/execution-summary.json`
+- `.output/reference/savings.json`
+- `.output/reference/scorecard.json`
+- `.output/reference/manifest.json`
+
+`scorecard.json` keeps the evaluation boundary explicit:
+`subjectiveCorrectionQuality: not-evaluated`. Deterministic execution evidence
+does not become a claim about correction quality.
+
+Optional Ollama evaluation is a provider compatibility check, not a quality proof.
+
+```bash
+pnpm run evaluate:ollama
+```
+
+See [docs/local-llm-provider.md](./docs/local-llm-provider.md) before using
+that manual path. Keep `demo:reference` mock-first and deterministic; Ollama
+does not replace the reference artifact checklist.
+
+This reference demo is not a complete product or production benchmark.
+It does not prove production readiness, latency, cost, token savings, provider quality, or factual correctness.
+
+Final demo narrative:
+
+- `pnpm run demo:reference` is the CLI entry point.
+- `src/index.ts` is the public SDK boundary.
+- `src/examples/langGraphReferenceWorkflow.ts` shows the LangGraph orchestration boundary.
+- The application evidence report explains the saved runtime evidence.
+- `src/examples/reference-scenario.json` defines the reference scenario.
+
+Together, these pieces show the same recomputation story from a local command
+to SDK boundary, LangGraph integration, artifact evidence, and report
+narrative.
+
+## Reference Demo Guardrails
+
+These guardrails protect the reference demo from unsupported benchmark and replacement claims.
+
+Do not describe the reference demo as a:
+
+- factual correctness benchmark
+- general LLM quality benchmark
+- latency or cost benchmark
+- LangGraph replacement
+- LangSmith replacement
+- framework-specific web adapter requirement
+- production durability guarantee
+
+The correct positioning is: application-level recomputation and traceability demo.
+
+Ollama/manual evaluation remains opt-in and documented separately. Use
+[`docs/local-llm-provider.md`](./docs/local-llm-provider.md) and
+`pnpm run evaluate:ollama` only when deliberately checking provider
+compatibility; `pnpm run demo:reference` always remains the deterministic mock
+path.
+
+### Final positioning summary
+
+- `pnpm run demo:reference` is deterministic and mock-first.
+- `pnpm run evaluate:ollama` is an opt-in provider compatibility path, not
+  model quality evidence.
+- `scorecard.json` preserves `subjectiveCorrectionQuality: not-evaluated`.
+- Reference examples consume the SDK through the `reactive-correction-graph`
+  package root.
+- This project demonstrates application-level selective recomputation,
+  traceability, and integration boundaries. It does not prove model quality or
+  production readiness.
+
+## Reference Scenario Definition
+
+The next application layer starts with a fixed technical article correction
+scenario. This is a reference application scenario, not a production app. Its
+job is to make the recomputation story concrete before adding a larger web
+product or provider-specific demo.
+
+The scenario fixtures live in:
+
+- [src/examples/reference-article.md](./src/examples/reference-article.md)
+- [src/examples/reference-style-guide.md](./src/examples/reference-style-guide.md)
+- [src/examples/reference-scenario.json](./src/examples/reference-scenario.json)
+
+The scenario defines three ordered inputs:
+
+- `initial`: establishes the baseline correction result.
+- `style-only update`: changes style guidance while keeping the draft claims
+  stable, so the demo can show reuse fact-check work.
+- `claim-changing update`: changes the draft claims, so the demo can show
+  recompute fact-check work.
+
+This keeps the reference demo focused on runtime behavior: which work can be
+reused, which work must be recomputed, and how those decisions become visible
+through trace and artifact evidence.
+
+## Reference Scenario Runner
+
+Run the deterministic reference scenario with:
+
+```bash
+pnpm run demo:reference
+```
+
+The runner is mock-first and uses deterministic mock model behavior. It does not require Ollama, LangSmith, API keys, a database, or a browser.
+
+By default, artifacts are written under `./.output/reference`. A custom output
+directory can be provided with either an environment variable or a CLI option:
+
+```bash
+REFERENCE_OUTPUT_DIR=./.output/reference pnpm run demo:reference
+pnpm run demo:reference -- --output-dir ./.output/reference
+```
+
+The reference runner writes:
+
+| Artifact | Purpose |
+| --- | --- |
+| `.output/reference/result.md` | Human-readable final correction result |
+| `.output/reference/state.json` | Final settled runtime state |
+| `.output/reference/trace.json` | Runtime lifecycle trace for the scenario |
+| `.output/reference/execution-summary.json` | Per-receive recompute, reuse, and emitted-work summary |
+| `.output/reference/savings.json` | Deterministic recomputation-savings report placeholder |
+| `.output/reference/manifest.json` | Artifact bundle index for report and tooling consumers |
+
+## Reference Scenario Transitions
+
+The reference scenario turns the recomputation-savings story into three ordered
+receives:
+
+| Transition | Runtime story | Evidence |
+| --- | --- | --- |
+| `initial` | Establishes the baseline; `recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 1 in `.output/reference/execution-summary.json` |
+| `style-only` | Keeps draft claims stable and changes style guidance; this produces one avoided fact-check call with `reused: factCheck` and `recomputed: styleReview, rewriteDraft` | receive epoch 2 in `.output/reference/execution-summary.json` and `.output/reference/savings.json` |
+| `claim-changing` | Changes draft claims; the runtime must not reuse stale claim coverage, so it records `recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 3 in `.output/reference/execution-summary.json` |
+
+This proves a scoped recomputation story: a stable claim set can reuse settled
+fact-check work, while a changed claim set recomputes it. It does not prove
+general quality claims: it does not prove token savings, latency savings, provider quality, or factual correctness.
+
+## Application Evidence Report
+
+When `.output/report.html` is generated from a reference artifact bundle, read
+it as an evidence map for the application scenario, not as a model-quality
+scorecard. Read the report from top to bottom by receive.
+
+Reading order:
+
+- `Initial baseline`: confirms the baseline correction work was established.
+- `Style-only update`: checks whether style guidance changed while fact-check
+  work could be reused.
+- `Claim-changing update`: checks whether changed claims forced fact-check work
+  to recompute.
+- `Evidence status`: shows whether the receive-level artifact evidence was
+  available.
+- `Reuse decision`: explains why reuse was valid, or why reuse could not be
+  verified.
+- `What this scenario proves`: states the scoped recomputation behavior the
+  report can support.
+- `What this scenario does not prove`: states the quality and production claims
+  the report cannot support.
+
+Missing evidence means the artifact bundle is incomplete; it is not counted as verified reuse. This application report does not prove factual correctness, provider quality, latency savings, token savings, or production readiness.
+
 ## Architecture
 
 ```mermaid

@@ -1749,3 +1749,166 @@ Local LLM evaluation 目前是 manual provider compatibility path。它可以幫
 > 這個專案的 benchmark story 不是「LLM 變聰明」或「LangGraph 被取代」，而是「在固定 agent workflow
 > transition 裡，signal-kernel runtime 能減少不必要的重算，並用 trace、artifact、SDK boundary、
 > LangGraph reference tests 把這件事變成可驗證的工程證據」。
+
+## Task 42：Reference Scenario Definition
+
+Task 42 開始把專案從 infrastructure proof 往 application proof 推進。這一階段先不急著做大型 Web app，也不急著接更多 provider，而是先定義一個固定的 technical article correction reference application scenario。它不是 production app；它的目的，是讓「減少 agent workflow 裡不必要重算」這件事從抽象 runtime 能力，變成可以被重跑、可以被講解、也可以被 trace/artifact 驗證的應用情境。
+
+目前 reference scenario 的 fixtures 放在：
+
+- `src/examples/reference-article.md`
+- `src/examples/reference-style-guide.md`
+- `src/examples/reference-scenario.json`
+
+`reference-article.md` 是一篇用來校正的技術文章草稿；`reference-style-guide.md` 是初始寫作規則；`reference-scenario.json` 則描述這個情境的 metadata、fixture paths、user intent、proof target，以及後續 transitions。
+
+這個 scenario 目前定義三個 ordered inputs：
+
+- `initial`：建立 technical article correction 的 baseline correction result。
+- `style-only update`：只改 style guide，不改 draft claims，用來展示 reuse fact-check work。
+- `claim-changing update`：修改 draft claims，用來展示 recompute fact-check work。
+
+這個設計讓 demo 的重點不會變成「模型答案好不好」，而是聚焦在 runtime 行為：哪些 work 可以 reuse、哪些 work 必須 recompute，以及這些決策如何透過 trace、state、summary、savings 或 report artifacts 被觀察。
+
+## Task 43：Reference Scenario Runner
+
+Task 43 把 Task 42 定義好的 reference application scenario 變成可以重複執行的 CLI demo。這一步的重點不是引入新的 provider，也不是開始做 UI，而是給開發者一個穩定入口，可以在本機重現整個 correction runtime 的 artifact bundle。
+
+執行指令是：
+
+```bash
+pnpm run demo:reference
+```
+
+這個 runner 預設使用 deterministic mock model，所以不需要 Ollama、不需要 LangSmith、不需要 API key、不需要資料庫，也不需要瀏覽器。也就是說，它是 mock-first、local-first 的 reference path，適合拿來驗證 runtime、trace、summary、savings、manifest 這些邊界是否能穩定產出。
+
+預設輸出目錄是 `./.output/reference`。如果要指定輸出位置，可以用環境變數或 CLI option：
+
+```bash
+REFERENCE_OUTPUT_DIR=./.output/reference pnpm run demo:reference
+pnpm run demo:reference -- --output-dir ./.output/reference
+```
+
+目前 runner 會產出這些 artifacts：
+
+| Artifact | 用途 |
+| --- | --- |
+| `.output/reference/result.md` | 給人閱讀的 final correction result |
+| `.output/reference/state.json` | 最後 settled 的 runtime state |
+| `.output/reference/trace.json` | scenario 執行過程中的 runtime lifecycle trace |
+| `.output/reference/execution-summary.json` | 每次 receive 的 recompute、reuse、emitted work 摘要 |
+| `.output/reference/savings.json` | deterministic recomputation-savings report placeholder |
+| `.output/reference/manifest.json` | artifact bundle index，給 report 或後續工具讀取 |
+
+這裡的價值是把「reference scenario」從文件描述推進到可重現的 runner。後續如果要比較 style-only update 和 claim-changing update 的差異，就可以直接基於這個穩定輸出路徑繼續加 transitions、savings 計算與 benchmark narrative。
+
+## Task 44：Reference Scenario Transitions
+
+Task 44 把 `demo:reference` 從「可以跑出 artifact bundle」推進到「可以說清楚 recomputation-savings story」。這裡的重點不是宣稱模型品質變好，而是讓三個固定 transition 對應到 runtime trace 和 execution summary。
+
+| Transition | Runtime story | Evidence |
+| --- | --- | --- |
+| `initial` | 建立 baseline；`recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 1 in `.output/reference/execution-summary.json` |
+| `style-only` | draft claims 穩定，只改 style guidance；這代表 one avoided fact-check call，summary 會顯示 `reused: factCheck` 與 `recomputed: styleReview, rewriteDraft` | receive epoch 2 in `.output/reference/execution-summary.json` and `.output/reference/savings.json` |
+| `claim-changing` | draft claims 改變，所以 runtime 不應 reuse stale claim coverage；summary 會顯示 `recomputed: factCheck, styleReview, rewriteDraft` | receive epoch 3 in `.output/reference/execution-summary.json` |
+
+這個 transition mapping 證明的是一個很窄但重要的應用價值：當 claim set 穩定時，settled fact-check work 可以被 reuse；當 claim set 改變時，factCheck 必須 recompute。它 does not prove token savings, latency savings, provider quality, or factual correctness。
+
+## Task 45：Application Evidence Report
+
+Task 45 把 Task 44 的 artifacts 轉成可以閱讀的 application report。這份 report 的定位不是 model-quality scorecard，而是 reference application scenario 的 evidence map。讀 `.output/report.html` 時，我會建議用 receive 的順序由上往下看。Read the report from top to bottom by receive.
+
+Reading order:
+
+- `Initial baseline`：先確認 baseline correction work 是否建立。
+- `Style-only update`：確認 style guidance 改變時，fact-check work 是否可以 reuse。
+- `Claim-changing update`：確認 claims 改變時，fact-check work 是否重新 recompute。
+- `Evidence status`：確認這個 receive 的 artifact evidence 是否存在。
+- `Reuse decision`：解釋為什麼 reuse 是有效的，或為什麼目前無法驗證 reuse。
+- `What this scenario proves`：說明 report 可以支撐的 scoped recomputation behavior。
+- `What this scenario does not prove`：說明 report 不能支撐的 quality 或 production claims。
+
+Missing evidence means the artifact bundle is incomplete; it is not counted as verified reuse. 這點很重要，因為 partial artifact 只能代表目前 evidence 不完整，不能被解讀成「已經驗證通過」。這份 application report does not prove factual correctness, provider quality, latency savings, token savings, or production readiness。
+## Task 46：Reference Demo Path
+
+Task 46 把 README 的 reference demo path 鏡像到中文技術文章，讓未來文章讀者可以直接從 command 走到 evidence artifacts。Reference Demo Path 的最短入口是：
+
+```bash
+pnpm run demo:reference
+```
+
+Inspect these artifacts after the command finishes:
+
+- `.output/reference/result.md`
+- `.output/reference/state.json`
+- `.output/reference/trace.json`
+- `.output/reference/execution-summary.json`
+- `.output/reference/savings.json`
+- `.output/reference/scorecard.json`
+- `.output/reference/manifest.json`
+
+`scorecard.json` 會明確保留品質評估邊界：
+`subjectiveCorrectionQuality: not-evaluated`。deterministic execution evidence
+不會被解讀成 correction quality 的證明。
+
+Optional Ollama evaluation is a provider compatibility check, not a quality proof.
+
+```bash
+pnpm run evaluate:ollama
+```
+
+Ollama 這條路徑是手動 provider compatibility evaluation。執行前先看 `docs/local-llm-provider.md`，並且不要把它解讀成 correction quality、factual correctness 或 production benchmark 的證明。
+
+This reference demo is not a complete product or production benchmark.
+It does not prove production readiness, latency, cost, token savings, provider quality, or factual correctness.
+
+Final demo narrative:
+
+- `pnpm run demo:reference` is the CLI entry point.
+- `src/index.ts` is the public SDK boundary.
+- `src/examples/langGraphReferenceWorkflow.ts` shows the LangGraph orchestration boundary.
+- The application evidence report explains the saved runtime evidence.
+- `src/examples/reference-scenario.json` defines the reference scenario.
+
+## Task 47：Reference Demo Guardrails
+
+Task 43 到 Task 46 已經把 reference scenario、CLI runner、artifacts、report 與操作路徑串了起來。當 demo 開始具備完整敘事後，下一個風險不是功能不足，而是讀者可能把有限的 execution evidence 解讀成更大的產品或模型能力。因此 Task 47 不再擴充 runtime，而是替整條 reference demo path 加上可測試的定位邊界，避免出現 unsupported benchmark and replacement claims。
+
+### 需要守住的界線
+
+不要把 reference demo 描述成：
+
+- factual correctness benchmark
+- general LLM quality benchmark
+- latency or cost benchmark
+- LangGraph replacement
+- LangSmith replacement
+- framework-specific web adapter requirement
+- production durability guarantee
+
+這些限制不是在削弱 demo 的價值，而是要求每一項主張都能回到實際 artifact 與測試。正確定位是：application-level recomputation and traceability demo。
+
+### Guardrail 如何落地
+
+Task 47 的六個切片分別保護不同邊界：
+
+- Task 47a 以 docs test 固定不能宣稱的 benchmark 與 replacement claims。
+- Task 47b 確保 `pnpm run demo:reference` 永遠使用 deterministic mock model，不會因外部設定而偷偷切換 provider。
+- Task 47c 保持真實模型評估為獨立手動路徑。Ollama/manual evaluation remains opt-in and documented separately. 只有需要檢查 provider compatibility 時，才依照 `docs/local-llm-provider.md` 執行 `pnpm run evaluate:ollama`。
+- Task 47d 讓 `scorecard.json` 明確保存 `subjectiveCorrectionQuality: not-evaluated`，避免 execution evidence 被誤讀為品質分數。
+- Task 47e 確保 Reference examples 一律透過 `reactive-correction-graph` package root 使用 SDK，不依賴內部 source paths。
+- Task 47f 將以上邊界收束成 README 與中文文章都能直接引用的最終定位。
+
+換句話說，mock path 負責提供穩定、可重現的 runtime evidence；Ollama path 負責觀察真實 provider compatibility；scorecard 與文件則負責阻止兩者被包裝成 model quality 或 production readiness 的證明。
+
+### Final positioning summary
+
+- `pnpm run demo:reference` 是 deterministic、mock-first 的主要驗證路徑。
+- `pnpm run evaluate:ollama` 是 opt-in provider compatibility path，不是
+  model quality 證據。
+- `scorecard.json` 保留 `subjectiveCorrectionQuality: not-evaluated`。
+- Reference examples 一律透過 `reactive-correction-graph` package root 使用 SDK。
+- 這個專案證明的是 application-level selective recomputation、traceability
+  與 integration boundaries；不證明 model quality 或 production readiness。
+
+到這裡，reference demo 的角色就清楚了：reference scenario 固定輸入與 transitions，CLI 產出可檢查 artifacts，public SDK 定義整合邊界，LangGraph example 展示 orchestration 分工，report 與 scorecard 說明 evidence 及其限制。這條路徑足以驗證 selective recomputation 是否發生、哪些工作被 reuse，以及這些決策能否被追蹤；更大的模型品質與 production claims，則留給未來獨立的評估設計。

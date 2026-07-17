@@ -1829,6 +1829,279 @@ Suggested TDD slices:
 5. Task 41e: add a concise README value statement focused on reducing wasted recomputation inside agent workflow nodes.
 6. Task 41f: mirror the evidence and limitation story in the Chinese article for future technical publishing.
 
+### 42. Reference Scenario Definition
+
+Scenario:
+
+```txt
+Given the runtime, CLI, artifacts, public SDK, and LangGraph reference boundary are already in place
+When the project moves from infrastructure proof to application proof
+Then it should define one concrete reference scenario that demonstrates why reactive correction matters
+```
+
+Why this follows Task 41:
+
+```txt
+Task 41 explains what the existing evidence proves.
+Task 42 turns that evidence into a fixed application scenario so future demos are not abstract runtime demonstrations.
+```
+
+Reference scenario direction:
+
+```txt
+Use a technical article / long-form draft correction scenario.
+The scenario should include:
+- an initial draft.
+- a style guide.
+- a style-only update.
+- a claim-changing draft update.
+- metadata that explains what each transition is meant to prove.
+```
+
+Acceptance:
+
+- reference scenario fixtures live in predictable `src/examples/*` paths.
+- fixtures are deterministic and can be loaded without Ollama, LangSmith, API keys, databases, or a web server.
+- the scenario includes at least one style-only transition and one claim-changing transition.
+- scenario metadata names the expected proof target for each transition.
+- tests verify the fixtures can be read and are not empty.
+- docs describe this as a reference application scenario, not a production app.
+
+Suggested TDD slices:
+
+1. Task 42a: add a failing fixture-loader test for a future reference scenario.
+2. Task 42b: add the reference article draft, style guide, and scenario metadata fixtures.
+3. Task 42c: add a typed `loadReferenceScenario` helper that returns the fixed scenario inputs.
+4. Task 42d: validate that the scenario includes initial, style-only, and claim-changing transitions.
+5. Task 42e: document the reference scenario purpose in README and the Chinese article.
+6. Task 42f: add a guard that keeps the scenario mock-first and free of provider/network requirements.
+
+### 43. Reference Scenario Runner
+
+Scenario:
+
+```txt
+Given a fixed reference scenario exists
+When a developer wants to reproduce the application demo
+Then one command should run the scenario and produce the expected artifact bundle
+```
+
+Why this follows Task 42:
+
+```txt
+Task 42 defines what the application scenario is.
+Task 43 makes that scenario executable through a stable CLI path.
+```
+
+Runner direction:
+
+```txt
+pnpm run demo:reference
+```
+
+The runner should produce deterministic local artifacts that can be inspected by humans and docs tests.
+
+Acceptance:
+
+- package scripts expose a `demo:reference` command.
+- the command runs without Ollama, LangSmith, API keys, databases, or a browser.
+- the command writes reference scenario artifacts under a predictable output path.
+- generated artifacts include result, trace, state, execution summary, savings, comparison or manifest data as appropriate.
+- runner errors are clear when fixtures are missing or invalid.
+- tests can run the runner against a temporary output directory.
+
+Suggested TDD slices:
+
+1. Task 43a: add a failing CLI test for `demo:reference` using a temporary output directory.
+2. Task 43b: implement a minimal reference scenario runner that loads the fixtures and runs the runtime.
+3. Task 43c: write result, trace, state, and manifest artifacts for the reference scenario.
+4. Task 43d: add execution summary and savings artifacts to the runner output.
+5. Task 43e: document the `demo:reference` command and output paths.
+6. Task 43f: add clear runner error handling for missing or invalid scenario fixtures.
+
+### 44. Reference Scenario Transitions
+
+Scenario:
+
+```txt
+Given the reference scenario can be executed
+When the scenario applies fixed transitions
+Then the output should show which work was reused and which work was recomputed
+```
+
+Why this follows Task 43:
+
+```txt
+Task 43 makes the scenario runnable.
+Task 44 makes the scenario prove the actual value: avoiding unnecessary recomputation across controlled changes.
+```
+
+Transition direction:
+
+```txt
+1. Initial receive.
+2. Style-only update.
+3. Claim-changing draft update.
+```
+
+Acceptance:
+
+- the reference runner applies the fixed transitions in order.
+- style-only update reuses settled fact-check work when claims have not changed.
+- claim-changing update recomputes fact-check work when claims change.
+- each receive has a projected execution summary.
+- artifacts make recomputed, reused, superseded, skipped, and emitted work visible.
+- tests assert behavior from trace/artifact data rather than implementation internals.
+
+Suggested TDD slices:
+
+1. Task 44a: add a failing test that expects the reference runner to produce multiple receives.
+2. Task 44b: implement ordered initial, style-only, and claim-changing transitions.
+3. Task 44c: assert style-only transition reuses fact-check work.
+4. Task 44d: assert claim-changing transition recomputes fact-check work.
+5. Task 44e: include receive-level execution summaries in the reference artifacts.
+6. Task 44f: document how each transition maps to the recomputation-savings story.
+
+### 45. Application Report
+
+Scenario:
+
+```txt
+Given the reference scenario produces trace and savings artifacts
+When a developer opens the generated report
+Then the report should explain the application-level story without requiring them to understand every runtime event
+```
+
+Why this follows Task 44:
+
+```txt
+Task 44 proves the transition behavior in artifacts.
+Task 45 turns those artifacts into a readable application report.
+```
+
+Report direction:
+
+```txt
+The report should answer:
+- What changed?
+- What recomputed?
+- What was reused?
+- Why was reuse valid?
+- What does this prove?
+- What does it not prove?
+```
+
+Acceptance:
+
+- the report has an application scenario section for the reference demo.
+- the report highlights style-only reuse and claim-changing recomputation.
+- the report links saved work to trace or execution-summary evidence.
+- the report does not claim factual correctness, provider quality, latency savings, token savings, or production readiness.
+- report view-model tests cover empty, partial, and complete reference artifacts.
+- generated HTML remains static and local-first.
+
+Suggested TDD slices:
+
+1. Task 45a: add a failing report view-model test for reference scenario evidence.
+2. Task 45b: project transition summaries into an application-level report model.
+3. Task 45c: render style-only reuse and claim-changing recomputation in the report HTML.
+4. Task 45d: add report copy for what the reference scenario proves and does not prove.
+5. Task 45e: handle missing or partial reference artifacts gracefully.
+6. Task 45f: document how to read the application report.
+
+### 46. Reference Demo Docs
+
+Scenario:
+
+```txt
+Given the reference scenario and application report exist
+When a new developer wants to understand the project
+Then the README and Chinese article should provide one direct path from command to evidence
+```
+
+Why this follows Task 45:
+
+```txt
+Task 45 gives the demo a readable report.
+Task 46 makes the demo explainable from the repository entry points.
+```
+
+Docs direction:
+
+```txt
+1. Run deterministic checks.
+2. Run `pnpm run demo:reference`.
+3. Open the generated artifacts.
+4. Read the application report.
+5. Optionally compare with Ollama evaluation as provider compatibility, not quality proof.
+```
+
+Acceptance:
+
+- README has a short reference demo path.
+- Chinese article mirrors the same story for future publishing.
+- docs name exact commands and exact artifacts to inspect.
+- docs explain why the reference demo is mock-first and deterministic.
+- docs explain where Ollama fits as optional provider compatibility evaluation.
+- docs avoid positioning the reference demo as a complete product or production benchmark.
+
+Suggested TDD slices:
+
+1. Task 46a: add a failing docs test requiring README to include the reference demo command.
+2. Task 46b: document the reference demo command and artifact checklist.
+3. Task 46c: mirror the reference demo path in the Chinese article.
+4. Task 46d: document the optional Ollama path as provider compatibility only.
+5. Task 46e: add a docs guard against production benchmark language.
+6. Task 46f: update the final demo narrative so CLI, SDK, LangGraph, report, and reference scenario all connect.
+
+### 47. Reference Demo Guardrails
+
+Scenario:
+
+```txt
+Given the project now has an application-level reference demo
+When someone reads or modifies the demo
+Then tests and docs should keep its claims scoped to recomputation, traceability, and integration boundaries
+```
+
+Why this follows Task 46:
+
+```txt
+Task 46 makes the demo easier to understand.
+Task 47 prevents that clearer story from turning into overclaims.
+```
+
+Guardrail direction:
+
+```txt
+Protect the reference demo from implying:
+- factual correctness benchmark.
+- general LLM quality benchmark.
+- latency or cost benchmark.
+- LangGraph replacement.
+- LangSmith replacement.
+- framework-specific web adapter requirement.
+- production durability guarantee.
+```
+
+Acceptance:
+
+- docs tests guard against unsupported benchmark and replacement claims.
+- reference demo tests stay deterministic by default.
+- Ollama/manual tests remain opt-in.
+- output artifacts preserve quality boundaries and `subjectiveCorrectionQuality: not-evaluated` where appropriate.
+- public SDK imports remain the only supported integration path for examples.
+- guardrail docs make the project positioning clear: application-level recomputation and traceability demo.
+
+Suggested TDD slices:
+
+1. Task 47a: add a failing docs guard test for unsupported benchmark and replacement claims.
+2. Task 47b: enforce mock-first reference demo behavior in tests.
+3. Task 47c: keep Ollama/manual evaluation opt-in and documented separately.
+4. Task 47d: verify output artifacts preserve quality-boundary fields and language.
+5. Task 47e: ensure reference examples import through the public SDK boundary only.
+6. Task 47f: summarize final positioning in README and the Chinese article.
+
 ## How To Ask The Agent
 
 Good request:

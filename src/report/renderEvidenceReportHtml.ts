@@ -1,4 +1,6 @@
 import type {
+  EvidenceReportApplicationScenarioTransitionViewModel,
+  EvidenceReportApplicationScenarioViewModel,
   EvidenceReportScenarioViewModel,
   EvidenceReportViewModel,
 } from "./createEvidenceReportViewModel.js";
@@ -167,12 +169,74 @@ export function renderEvidenceReportHtml(
     <a class="skip-link" href="#report-content">Skip to report content</a>
     <main id="report-content" tabindex="-1">
       <h1>${escapeHtml(viewModel.title)}</h1>
+      ${renderApplicationScenario(viewModel.applicationScenario)}
       ${viewModel.scenarios.map(renderScenario).join("\n      ")}
       ${renderReliability(viewModel)}
     </main>
   </body>
 </html>
 `;
+}
+
+function renderApplicationScenario(
+  scenario: EvidenceReportApplicationScenarioViewModel | undefined,
+): string {
+  if (!scenario) {
+    return "";
+  }
+
+  const headingId = `application-scenario-${scenario.key}`;
+
+  return `<section aria-labelledby="${headingId}">
+        <h2 id="${headingId}">${escapeHtml(scenario.label)}</h2>
+        <p>Evidence: ${escapeHtml(
+          scenario.evidence.executionSummaryArtifact,
+        )} and ${escapeHtml(scenario.evidence.savingsArtifact)}</p>
+        ${scenario.transitions.map(renderApplicationTransition).join("\n        ")}
+        ${renderApplicationClaims(scenario)}
+      </section>`;
+}
+
+function renderApplicationClaims(
+  scenario: EvidenceReportApplicationScenarioViewModel,
+): string {
+  return `<section aria-labelledby="application-scenario-proves">
+          <h3 id="application-scenario-proves">What this scenario proves</h3>
+          ${renderList(scenario.proves)}
+        </section>
+        <section aria-labelledby="application-scenario-limits">
+          <h3 id="application-scenario-limits">What this scenario does not prove</h3>
+          ${renderList(scenario.limits)}
+        </section>`;
+}
+
+function renderApplicationTransition(
+  transition: EvidenceReportApplicationScenarioTransitionViewModel,
+): string {
+  const headingId = `application-transition-${transition.key}`;
+
+  return `<section aria-labelledby="${headingId}">
+          <h3 id="${headingId}">${escapeHtml(transition.label)}</h3>
+          <p>${escapeHtml(transition.outcome)}</p>
+          <dl>
+            <dt>Changed</dt>
+            <dd>${escapeHtml(transition.changed)}</dd>
+            <dt>Recomputed</dt>
+            <dd>${renderWorkLabels(transition.recomputed)}</dd>
+            <dt>Reused</dt>
+            <dd>${renderWorkLabels(transition.reused)}</dd>
+            <dt>Superseded</dt>
+            <dd>${renderWorkLabels(transition.superseded)}</dd>
+            <dt>Emitted</dt>
+            <dd>${renderWorkLabels(transition.emitted)}</dd>
+            <dt>Evidence status</dt>
+            <dd>${statusLabel(transition.evidenceStatus)}</dd>
+            <dt>Reuse decision</dt>
+            <dd>${escapeHtml(transition.reuseDecision)}</dd>
+            <dt>Evidence</dt>
+            <dd>${escapeHtml(transition.evidence)}</dd>
+          </dl>
+        </section>`;
 }
 
 function renderScenario(scenario: EvidenceReportScenarioViewModel): string {
@@ -229,6 +293,12 @@ function renderWorkLabels(labels: string[]): string {
   return labels.length > 0 ? labels.map(escapeHtml).join(", ") : "None";
 }
 
+function renderList(items: string[]): string {
+  return `<ul>
+            ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("\n            ")}
+          </ul>`;
+}
+
 function renderReliability(viewModel: EvidenceReportViewModel): string {
   const reliability = viewModel.reliability;
 
@@ -254,11 +324,7 @@ function renderReliability(viewModel: EvidenceReportViewModel): string {
             .join("\n          ")}
         </dl>
         <h3>Evidence limits</h3>
-        <ul>
-          ${viewModel.evidenceLimits
-            .map((limit) => `<li>${escapeHtml(limit)}</li>`)
-            .join("\n          ")}
-        </ul>
+        ${renderList(viewModel.evidenceLimits)}
       </section>`;
 }
 

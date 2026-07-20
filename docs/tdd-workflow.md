@@ -2102,6 +2102,205 @@ Suggested TDD slices:
 5. Task 47e: ensure reference examples import through the public SDK boundary only.
 6. Task 47f: summarize final positioning in README and the Chinese article.
 
+### 48. Reference Demo Closure
+
+Scenario:
+
+```txt
+Given the deterministic reference demo already writes trace and execution-summary evidence
+When a developer runs the reference command
+Then the same bundle should contain measured comparison data, a non-placeholder savings report, and a readable static report
+```
+
+Why this follows Task 47:
+
+```txt
+Task 47 keeps the current demo claims honest.
+Task 48 closes the two remaining operational gaps before the project introduces multi-agent coordination.
+```
+
+Closure direction:
+
+```txt
+pnpm run demo:reference
+  -> run the persistent reference transitions.
+  -> run a fresh-session baseline for the same fixed transitions.
+  -> compare only structurally comparable final results.
+  -> write comparison.json and a populated savings.json.
+  -> render report.html inside the same reference bundle.
+```
+
+Acceptance:
+
+- the eager baseline and persistent reference path use the same fixtures and deterministic model behavior.
+- `comparison.json` and `savings.json` contain `style-only` and `claim-changing` scenarios instead of placeholder empty arrays.
+- avoided-call values are reported only when the eager and reactive final results are structurally comparable.
+- `execution-summary.json` remains the receive-level source for recomputed, reused, superseded, and emitted work.
+- `report.html` is generated under `.output/reference` and the manifest preserves the `demo:reference` source-run identity.
+- `scorecard.json` reports measured execution evidence separately while keeping `subjectiveCorrectionQuality: not-evaluated`.
+- the full path remains deterministic, local-first, and testable in a temporary output directory.
+
+Suggested TDD slices:
+
+1. Task 48a: add a failing reference comparison test that expects style-only and claim-changing measurements.
+2. Task 48b: implement the minimal fresh-session baseline and persistent-session measurement for the fixed reference transitions.
+3. Task 48c: write compatible `comparison.json` and populated `savings.json` artifacts with comparability guards.
+4. Task 48d: add a failing CLI test that expects `.output/reference/report.html` in the completed bundle.
+5. Task 48e: render the static report from the reference bundle while preserving source-run manifest provenance.
+6. Task 48f: update README, the Chinese article, and docs guards for the one-command reference evidence path.
+
+### 49. Multi-Agent Contract Definition
+
+Scenario:
+
+```txt
+Given the single-session reference demo is complete
+When the project introduces more than one agent runtime
+Then agent identity, message causality, state ownership, and failure semantics should be explicit before coordination behavior is implemented
+```
+
+Why this follows Task 48:
+
+```txt
+Task 48 finishes the single-runtime application proof.
+Task 49 defines what changes when work is owned by separate agents instead of branches inside one runtime.
+```
+
+Contract direction:
+
+```txt
+Start with two roles:
+- FactCheck Agent: owns claim verification and evidence output.
+- Writer Agent: owns style-aware revision from draft plus accepted evidence.
+
+Use a framework-neutral coordinator boundary.
+Agents exchange versioned, JSON-serializable envelopes rather than live runtime objects.
+The initial reference design uses isolated agent sessions owned by one coordinator.
+```
+
+Acceptance:
+
+- agent identities and responsibilities are named explicitly and do not reuse operation labels as if they were autonomous agents.
+- message envelopes are versioned and include enough identity, correlation, and input-version data to establish causality.
+- agent inputs, outputs, errors, and stale outcomes are JSON-serializable and validate through public parsers.
+- ownership is explicit: the coordinator owns routing and lifecycle; each agent owns its private runtime state.
+- unknown agents, malformed envelopes, and stale input versions produce deterministic diagnostics instead of silently mutating state.
+- contracts remain independent of React, Vue, web servers, LangGraph state objects, and real LLM providers.
+- docs explain why the current fact-check/style/rewrite branches are not yet equivalent to isolated agents.
+
+Suggested TDD slices:
+
+1. Task 49a: add a failing contract test for round-tripping a versioned agent message envelope.
+2. Task 49b: implement minimal agent identity, envelope, result, and parser contracts.
+3. Task 49c: add a failing contract test for unknown recipients, malformed payloads, and stale input versions.
+4. Task 49d: implement deterministic validation and causal-version diagnostics without adding coordination behavior.
+5. Task 49e: define and test the framework-neutral coordinator interface and isolated agent-session ownership boundary.
+6. Task 49f: document the two-agent roles, ownership decision, public boundary, and explicit non-goals.
+
+### 50. Two-Agent Reactive Vertical Slice
+
+Scenario:
+
+```txt
+Given FactCheck Agent and Writer Agent contracts exist
+When a draft or style instruction changes
+Then the coordinator should route only the agent work invalidated by that change and expose the decision through trace evidence
+```
+
+Why this follows Task 49:
+
+```txt
+Task 49 defines the multi-agent language and boundaries.
+Task 50 proves one end-to-end behavior with two deterministic agents before adding autonomy, tools, or more roles.
+```
+
+Vertical-slice direction:
+
+```txt
+Draft and claims
+  -> FactCheck Agent
+  -> versioned evidence message
+  -> Writer Agent
+  -> revised draft and final result
+
+Style-only update:
+  reuse settled FactCheck Agent evidence; rerun Writer Agent.
+
+Claim-changing update:
+  rerun FactCheck Agent; route new evidence to Writer Agent; reject stale results.
+```
+
+Acceptance:
+
+- the two-agent scenario runs with deterministic mock functions and no Ollama, network, database, or UI requirement.
+- an initial receive produces versioned fact-check evidence and a revised draft through the coordinator public interface.
+- a style-only update reuses current FactCheck Agent evidence and reruns Writer Agent work.
+- a claim-changing update invalidates old evidence and reruns both affected agents.
+- agent-level trace data records message emission, receipt, pending work, resolution, reuse, stale results, and final emission.
+- two coordinator sessions remain isolated and do not share agent runtime state through module-level globals.
+- serializable workflow state contains facts and envelopes, never live sessions, signals, promises, subscriptions, or abort controllers.
+- the first slice does not claim autonomous planning, dynamic team formation, tool selection, or model-quality improvement.
+
+Suggested TDD slices:
+
+1. Task 50a: add a failing end-to-end test for an initial FactCheck Agent to Writer Agent correction result.
+2. Task 50b: implement the minimal deterministic agents and coordinator needed to pass the initial tracer bullet.
+3. Task 50c: add a failing style-only update test that expects FactCheck Agent evidence reuse.
+4. Task 50d: implement agent-level invalidation, reuse, and trace projection for the style-only path.
+5. Task 50e: add failing claim-changing and session-isolation tests that reject stale evidence.
+6. Task 50f: implement the minimal claim invalidation and isolation behavior, then document the two-agent reference flow and its limits.
+
+### 51. Multi-Agent Snapshot And Recovery
+
+Scenario:
+
+```txt
+Given the two-agent coordinator owns isolated runtime sessions
+When a process snapshots and restores a settled or interrupted workflow
+Then restored agents should preserve causal state without allowing pre-restore async work or another session to overwrite the result
+```
+
+Why this follows Task 50:
+
+```txt
+Task 50 proves live two-agent coordination.
+Task 51 makes that coordination durable and determines where @signal-kernel/snapshot belongs in the architecture.
+```
+
+Snapshot direction:
+
+```txt
+Coordinator snapshot:
+- schema version and coordinator/session identity.
+- current input and causal version.
+- serializable message cursor or accepted envelope history.
+- one serializable snapshot per isolated agent runtime.
+- emitted result and trace metadata needed for safe continuation.
+
+@signal-kernel/snapshot is used at the owned agent-runtime boundary.
+The coordinator remains responsible for the aggregate versioned envelope and restore policy.
+```
+
+Acceptance:
+
+- a versioned multi-agent snapshot round-trips through JSON without live runtime handles.
+- restoring a settled snapshot reproduces the same emitted result and trace baseline.
+- the next style-only or claim-changing receive after restore preserves the Task 50 reuse and invalidation behavior.
+- async work started before restore cannot overwrite restored agent state or emit a newer-looking stale result.
+- restored coordinator sessions remain isolated when created from the same snapshot value.
+- malformed snapshots, unsupported schema versions, agent-identity mismatches, and incomplete agent snapshots fail with clear errors.
+- snapshot data can be stored in LangGraph checkpoint state, while live agent runtimes remain process-local.
+- no database or distributed persistence backend is introduced in this task.
+
+Suggested TDD slices:
+
+1. Task 51a: add a failing JSON round-trip test for a settled two-agent coordinator snapshot.
+2. Task 51b: implement the versioned aggregate snapshot and per-agent `@signal-kernel/snapshot` adapters.
+3. Task 51c: add a failing restore-and-continue test for style-only reuse and claim-changing invalidation.
+4. Task 51d: implement causal epoch restoration and invalidate pre-restore async work.
+5. Task 51e: add failing tests for restored-session isolation, malformed snapshots, schema mismatch, and agent-identity mismatch.
+6. Task 51f: implement the remaining restore guards and document the LangGraph checkpoint boundary, public SDK surface, and durability limits.
+
 ## How To Ask The Agent
 
 Good request:

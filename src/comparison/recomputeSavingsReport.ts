@@ -91,22 +91,30 @@ export function createRecomputeSavingsReport(
     provider: comparison.provider,
     scenarios: comparison.scenarios.map((scenario) => {
       const summary = executionSummaries[scenario.scenario];
-      const operations = OPERATION_COUNT_KEYS.map(([operation, countKey]) =>
-        calculateRecomputeSavingsOperation({
+      const operations = OPERATION_COUNT_KEYS.map(([operation, countKey]) => {
+        const input = {
           operation,
           eagerCalls: scenario.eager[countKey] - previous.eager[countKey],
           reactiveCalls:
             scenario.reactive[countKey] - previous.reactive[countKey],
           ...summarizeRecomputeSavingsEvidence([summary], operation),
-        }),
-      );
+        };
+
+        return scenario.finalResultsMatch
+          ? calculateRecomputeSavingsOperation(input)
+          : { ...input, avoidedCalls: null };
+      });
 
       previous = scenario;
 
       return {
         scenario: scenario.scenario,
-        comparisonStatus: "comparable",
-        incomparableReason: null,
+        comparisonStatus: scenario.finalResultsMatch
+          ? "comparable"
+          : "incomparable",
+        incomparableReason: scenario.finalResultsMatch
+          ? null
+          : "Eager and reactive final results are not structurally equal",
         operations,
       };
     }),

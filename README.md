@@ -133,6 +133,8 @@ Then read the public SDK examples and LangGraph reference examples:
 
 ## Reference Demo Path
 
+One command produces the complete reference evidence bundle.
+
 Run the application-level reference demo with:
 
 ```bash
@@ -149,9 +151,16 @@ Inspect these artifacts after the command finishes:
 - `.output/reference/state.json`
 - `.output/reference/trace.json`
 - `.output/reference/execution-summary.json`
+- `.output/reference/comparison.json`
 - `.output/reference/savings.json`
 - `.output/reference/scorecard.json`
+- `.output/reference/report.html`
 - `.output/reference/manifest.json`
+
+`comparison.json` records cumulative eager and reactive operation counts.
+`savings.json` reports avoided calls only when final results are structurally comparable.
+`report.html` renders the same bundle as an offline evidence report.
+The manifest keeps the `demo:reference` source-run identity.
 
 `scorecard.json` keeps the evaluation boundary explicit:
 `subjectiveCorrectionQuality: not-evaluated`. Deterministic execution evidence

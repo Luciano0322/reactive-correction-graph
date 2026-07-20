@@ -1912,3 +1912,37 @@ Task 47 的六個切片分別保護不同邊界：
   與 integration boundaries；不證明 model quality 或 production readiness。
 
 到這裡，reference demo 的角色就清楚了：reference scenario 固定輸入與 transitions，CLI 產出可檢查 artifacts，public SDK 定義整合邊界，LangGraph example 展示 orchestration 分工，report 與 scorecard 說明 evidence 及其限制。這條路徑足以驗證 selective recomputation 是否發生、哪些工作被 reuse，以及這些決策能否被追蹤；更大的模型品質與 production claims，則留給未來獨立的評估設計。
+
+## Task 48：Reference Demo Closure
+
+Task 48 收掉前一階段仍分散的操作路徑。現在單一指令會產生完整的 reference evidence bundle：
+
+```bash
+pnpm run demo:reference
+```
+
+完成後可以直接檢查：
+
+- `.output/reference/result.md`
+- `.output/reference/state.json`
+- `.output/reference/trace.json`
+- `.output/reference/execution-summary.json`
+- `.output/reference/comparison.json`
+- `.output/reference/savings.json`
+- `.output/reference/scorecard.json`
+- `.output/reference/report.html`
+- `.output/reference/manifest.json`
+
+這次 closure 並不是單純增加輸出檔案，而是把同一組 fixed transitions 的執行證據接成一條完整路徑：
+
+- fresh session baseline 代表每次更新都重新執行 correction work 的 eager 路徑。
+- persistent session 代表保留 settled runtime state、只重算 stale dependencies 的 reactive 路徑。
+- `comparison.json` 記錄 eager 與 reactive 的累積 operation counts。
+- `execution-summary.json` 仍是每個 receive epoch 中 recomputed、reused、superseded 與 emitted work 的來源。
+- `savings.json` 只在 final results structurally comparable 時回報 `avoidedCalls`；若輸出不同，數值會是 `null`，避免把不等價結果解讀成節省。
+- `report.html` 把同一份 bundle render 成 offline evidence report，不需要額外啟動 server。
+- `manifest.json` 保留 `demo:reference` source-run identity，因此 report 不會被誤認成另一個獨立 run。
+
+這份 bundle 證明的是固定 deterministic scenario 中可觀察的 selective recomputation：style-only 更新可以 reuse settled fact-check work，而 claim-changing 更新會重新執行 fact check。它仍然不代表模型品質、事實正確性、延遲、token、成本或 production readiness。`scorecard.json` 也繼續保留 `subjectiveCorrectionQuality: not-evaluated`，讓 execution efficiency evidence 與主觀品質評估維持分離。
+
+因此 Task 48 完成的是 single-runtime reference application 的操作閉環：同一條 command 從 fixtures、runtime transitions、comparison、savings 一路走到可閱讀報告。下一階段若要進入 multi-agent，便能以這份單 runtime 證據作為基準，而不是在尚未收斂的 demo 上繼續增加協作複雜度。

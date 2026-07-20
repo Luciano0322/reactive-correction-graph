@@ -9,6 +9,34 @@ import { loadArtifactBundle } from "../artifacts/loadArtifactBundle.js";
 const execAsync = promisify(exec);
 
 describe("reference demo CLI", () => {
+  it("writes report.html into the completed reference bundle", async () => {
+    const cwd = process.cwd();
+    const outputDir = await mkdtemp(join(tmpdir(), "rcg-reference-report-"));
+    const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+
+    try {
+      await execAsync(`${pnpmCommand} run demo:reference`, {
+        cwd,
+        timeout: 10_000,
+        env: {
+          ...process.env,
+          REFERENCE_OUTPUT_DIR: outputDir,
+        },
+      });
+
+      const bundle = await loadArtifactBundle(outputDir);
+
+      expect(bundle.artifacts.report).toEqual({
+        path: "report.html",
+        mediaType: "text/html",
+        schema: null,
+        content: expect.stringContaining("<!doctype html>"),
+      });
+    } finally {
+      await rm(outputDir, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it("writes a runtime artifact bundle to a temporary output directory", async () => {
     const cwd = process.cwd();
     const outputDir = await mkdtemp(join(tmpdir(), "rcg-reference-"));
@@ -50,8 +78,10 @@ describe("reference demo CLI", () => {
           "state",
           "trace",
           "executionSummary",
+          "comparison",
           "savings",
           "scorecard",
+          "report",
         ],
         result: expect.objectContaining({
           path: "result.md",

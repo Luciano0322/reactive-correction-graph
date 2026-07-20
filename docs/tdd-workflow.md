@@ -2301,6 +2301,61 @@ Suggested TDD slices:
 5. Task 51e: add failing tests for restored-session isolation, malformed snapshots, schema mismatch, and agent-identity mismatch.
 6. Task 51f: implement the remaining restore guards and document the LangGraph checkpoint boundary, public SDK surface, and durability limits.
 
+### 52. Loop Runtime Extraction Readiness
+
+Scenario:
+
+```txt
+Given the two-agent POC and snapshot recovery behavior are complete
+When the project considers extracting a reusable npm package
+Then the generic lifecycle contract should be proven independent of correction, agent coordination, LangGraph, rendering, and platform-specific code before files move to a package workspace
+```
+
+Why this follows Task 51:
+
+```txt
+Task 51 proves runtime continuity with the real @signal-kernel/snapshot boundary.
+Task 52 determines whether those proven mechanics are ready to become @signal-kernel/loop-runtime instead of copying a domain runtime into a new repository.
+```
+
+Readiness direction:
+
+```txt
+Target package:
+- @signal-kernel/loop-runtime@0.1.0
+- experimental, ESM-only, isomorphic, and framework-neutral.
+- lifecycle container over signal-kernel primitives, not a new graph DSL.
+- no correction, agent coordinator, LangGraph, Node, DOM, React, or Vue concepts.
+
+Reference repository:
+- remains the correction and multi-agent integration consumer.
+- supplies behavior tests and comparison/savings regression evidence.
+- does not publish its domain runtime as the generic package.
+```
+
+Acceptance:
+
+- the extraction audit links each proposed generic mechanic to passing Task 49-51 behavior evidence.
+- the proposed package surface is limited to loop definition, lifecycle, settlement, inspection, snapshot, trace, errors, and disposal.
+- `receive(input)` remains opaque and generic; merge, reducer, patch, envelope, and domain semantics remain outside the runtime.
+- `emit()` is specified as settled-only, while pending state is exposed only through inspection.
+- fixed-point settlement, latest-epoch-wins, stale-result containment, and no-automatic-retry semantics are documented and backed by tests.
+- the real `@signal-kernel/snapshot` integration proves settled-value reuse, omitted-pending-work recomputation, late-result containment, and restored-session isolation.
+- the trace contract records restored, reused, recomputed, and superseded work through versioned JSON-compatible events.
+- package dependency guards reject correction schemas, coordinator contracts, LangGraph, Node built-ins, DOM, React, and Vue imports.
+- the correction reference comparison and savings artifacts establish the before-extraction regression baseline.
+- `docs/rfcs/signal-kernel-loop-runtime-proposal.md` records accepted decisions, non-goals, risks, open questions, extraction steps, and experimental release gates.
+- no publishable package implementation or source-file move begins until the readiness audit passes.
+
+Suggested TDD slices:
+
+1. Task 52a: add a failing docs guard that requires the Loop Runtime RFC decisions, non-goals, and extraction gates.
+2. Task 52b: add the extraction evidence matrix mapping proposed generic mechanics to Task 49-51 tests and current source ownership.
+3. Task 52c: add a failing architecture guard for correction, coordinator, LangGraph, Node, DOM, React, and Vue imports in the candidate package boundary.
+4. Task 52d: define a reusable black-box lifecycle behavior suite for fixed-point settlement, latest epochs, settled emission, trace, and snapshot restore.
+5. Task 52e: run the behavior suite against the validated POC adapter and record the reference comparison/savings baseline for later package migration.
+6. Task 52f: resolve or explicitly defer the RFC open questions, publish the readiness audit result, and decide whether to create `packages/loop-runtime` in the signal-kernel workspace.
+
 ## How To Ask The Agent
 
 Good request:

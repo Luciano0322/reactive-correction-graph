@@ -5,15 +5,19 @@ import {
   serializeArtifactBundleManifest,
   type ArtifactBundleManifest,
 } from "../artifacts/artifactBundleManifest.js";
+import { loadArtifactBundle } from "../artifacts/loadArtifactBundle.js";
 import {
+  createRecomputeSavingsReport,
   serializeRecomputeSavingsReport,
-  type RecomputeSavingsReport,
+  type RecomputeSavingsExecutionSummaries,
 } from "../comparison/recomputeSavingsReport.js";
 import {
   createStructuralReliabilityScorecard,
   serializeStructuralReliabilityScorecard,
 } from "../evaluation/structuralReliabilityScorecard.js";
 import type { ReferenceScenarioRun } from "../reference/runReferenceScenario.js";
+import { createEvidenceReportViewModel } from "../report/createEvidenceReportViewModel.js";
+import { renderEvidenceReportHtml } from "../report/renderEvidenceReportHtml.js";
 import {
   projectReceiveExecutionSummary,
   serializeReceiveExecutionSummaryReport,
@@ -31,11 +35,19 @@ export async function writeReferenceDemoArtifacts(
       projectReceiveExecutionSummary(run.trace, receive.receiveEpoch),
     ),
   };
-  const savingsReport: RecomputeSavingsReport = {
-    schemaVersion: 1,
-    provider: run.provider,
-    scenarios: [],
-  };
+  const executionSummaries = Object.fromEntries(
+    run.receives
+      .filter((receive) => receive.transition.id !== "initial")
+      .map((receive) => [
+        receive.transition.id,
+        projectReceiveExecutionSummary(run.trace, receive.receiveEpoch),
+      ]),
+  ) as RecomputeSavingsExecutionSummaries;
+  const savingsReport = createRecomputeSavingsReport(
+    run.comparison,
+    run.comparisonBaseline,
+    executionSummaries,
+  );
   const scorecard = createStructuralReliabilityScorecard({
     policyVersion: 1,
     runtimeSettlement: {
@@ -58,7 +70,7 @@ export async function writeReferenceDemoArtifacts(
       ),
     },
   });
-  const manifest = createArtifactBundleManifest({
+  const sourceManifest = createArtifactBundleManifest({
     command: "demo:reference",
     mode: "runtime",
     provider: run.provider,
@@ -82,6 +94,11 @@ export async function writeReferenceDemoArtifacts(
         path: "execution-summary.json",
         mediaType: "application/json",
         schema: { name: "receive-execution-summaries", version: 1 },
+      },
+      comparison: {
+        path: "comparison.json",
+        mediaType: "application/json",
+        schema: { name: "correction-comparison", version: 1 },
       },
       savings: {
         path: "savings.json",
@@ -119,6 +136,11 @@ export async function writeReferenceDemoArtifacts(
       "utf8",
     ),
     writeFile(
+      resolve(outputDir, "comparison.json"),
+      `${JSON.stringify(run.comparison, null, 2)}\n`,
+      "utf8",
+    ),
+    writeFile(
       resolve(outputDir, "savings.json"),
       serializeRecomputeSavingsReport(savingsReport),
       "utf8",
@@ -128,6 +150,31 @@ export async function writeReferenceDemoArtifacts(
       serializeStructuralReliabilityScorecard(scorecard),
       "utf8",
     ),
+    writeFile(
+      resolve(outputDir, "manifest.json"),
+      serializeArtifactBundleManifest(sourceManifest),
+      "utf8",
+    ),
+  ]);
+
+  const sourceBundle = await loadArtifactBundle(outputDir);
+  const reportHtml = renderEvidenceReportHtml(
+    createEvidenceReportViewModel(sourceBundle),
+  );
+  const manifest: ArtifactBundleManifest = {
+    ...sourceManifest,
+    artifacts: {
+      ...sourceManifest.artifacts,
+      report: {
+        path: "report.html",
+        mediaType: "text/html",
+        schema: null,
+      },
+    },
+  };
+
+  await Promise.all([
+    writeFile(resolve(outputDir, "report.html"), reportHtml, "utf8"),
     writeFile(
       resolve(outputDir, "manifest.json"),
       serializeArtifactBundleManifest(manifest),

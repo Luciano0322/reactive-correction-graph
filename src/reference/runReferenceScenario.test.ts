@@ -117,6 +117,52 @@ describe("runReferenceScenario", () => {
     expect(run.state.draft).toBe(run.scenario.inputs.claimChanging.draft);
   });
 
+  it("reports eager and reactive measurements for the fixed reference transitions", async () => {
+    const run = await runReferenceScenario();
+
+    expect(run).toEqual(
+      expect.objectContaining({
+        comparison: {
+          provider: "deterministic-mock",
+          scenarios: [
+            {
+              scenario: "style-only",
+              eager: {
+                factCheckCalls: 2,
+                styleReviewCalls: 2,
+                rewriteDraftCalls: 2,
+                finalResultProduced: true,
+              },
+              reactive: {
+                factCheckCalls: 1,
+                styleReviewCalls: 2,
+                rewriteDraftCalls: 2,
+                finalResultProduced: true,
+              },
+              finalResultsMatch: true,
+            },
+            {
+              scenario: "claim-changing",
+              eager: {
+                factCheckCalls: 3,
+                styleReviewCalls: 3,
+                rewriteDraftCalls: 3,
+                finalResultProduced: true,
+              },
+              reactive: {
+                factCheckCalls: 2,
+                styleReviewCalls: 3,
+                rewriteDraftCalls: 3,
+                finalResultProduced: true,
+              },
+              finalResultsMatch: true,
+            },
+          ],
+        },
+      }),
+    );
+  });
+
   it("reuses settled fact-check work for the style-only transition", async () => {
     const run = await runReferenceScenario();
     const styleOnlyReceive = run.receives.find(

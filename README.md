@@ -54,17 +54,21 @@ Non-goals:
   package; a future package can be extracted after the reference demo proves
   the boundary is useful.
 
-## Multi-Agent Contract Boundary
+## Multi-Agent Reference Boundary
 
-Task 49 defines the contracts required before implementing live multi-agent
-coordination. The initial design has a FactCheck Agent and a Writer Agent, each
-with a private session boundary. A framework-neutral coordinator owns their
-lifecycle, while agents exchange versioned JSON-compatible envelopes instead
+Task 49 defines the contracts for a FactCheck Agent and Writer Agent with
+private session boundaries. Task 50 adds a deterministic framework-neutral
+coordinator that routes versioned JSON-compatible evidence envelopes instead
 of live runtime objects.
 
-This stage defines identity, causality, validation, stale diagnostics, and
-session isolation. It does not yet implement message routing, autonomous
-planning, dynamic teams, tool selection, shared mutable runtime state, or a
+The initial receive runs both agents. A style-only receive reuses settled
+fact-check evidence and reruns Writer; a claim-changing receive invalidates old
+evidence and reruns both agents. Input-version guards reject late async results,
+and separate coordinator instances keep sessions, evidence, output, and traces
+isolated.
+
+This is a fixed reference flow, not autonomous planning, dynamic teams, tool
+selection, shared mutable runtime state, process recovery, or a
 LangGraph-specific coordinator.
 
 See [Multi-Agent Contract Boundary](./docs/multi-agent-contracts.md) for the

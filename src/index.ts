@@ -76,3 +76,12 @@ export type {
   AgentSessionFactory,
   CreateAgentCoordinatorBoundaryOptions,
 } from "./agents/coordinatorContracts.js";
+
+export {
+  createTwoAgentCorrectionCoordinator,
+} from "./agents/createTwoAgentCorrectionCoordinator.js";
+export type {
+  TwoAgentCorrectionCoordinator,
+  TwoAgentCorrectionCoordinatorOptions,
+  TwoAgentCorrectionOutput,
+} from "./agents/createTwoAgentCorrectionCoordinator.js";

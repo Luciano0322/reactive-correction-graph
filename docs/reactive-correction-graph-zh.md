@@ -1994,3 +1994,57 @@ contract boundary 外面。
 
 完整角色、ownership、public API 與 non-goals 記錄在
 `docs/multi-agent-contracts.md`。
+
+## Task 50：Two-Agent Reactive Vertical Slice
+
+Task 50 把 Task 49 的 contract boundary 接成第一條可執行的 two-agent
+reference flow。這不是把原本 runtime 裡的每個 operation 改名成 agent，
+而是建立兩個由 coordinator 個別持有的 session：
+
+- FactCheck Agent 接收 claims，產生 fact-check evidence。
+- Writer Agent 只接收 draft、style guidance 與已接受的 evidence，產生
+  revised draft 和 final result。
+
+公開入口 `createTwoAgentCorrectionCoordinator()` 維持 framework-neutral，
+提供 `receive()`、`runUntilSettled()`、`emit()`、`trace()` 與 `dispose()`。
+預設使用 deterministic mock model，不需要 Ollama、API key、database、
+LangGraph 或 UI；測試也可以透過可選的 `model` contract 注入可控制的
+async provider。
+
+目前固定流程如下：
+
+```txt
+draft
+  -> claims
+  -> FactCheck Agent
+  -> versioned JSON evidence envelope
+  -> Writer Agent
+  -> revised draft / final result
+```
+
+這個 vertical slice 驗證三種 invalidation 行為：
+
+1. Initial receive 會執行 FactCheck 與 Writer，並輸出 versioned evidence。
+2. Style-only update 不改變 claims，因此 reuse settled fact-check evidence，
+   只重新執行 Writer。
+3. Claim-changing update 會把舊 evidence 記為 `stale`，重新執行 FactCheck，
+   再把新 evidence route 給 Writer。
+
+每次 `receive()` 都會增加 input version。Agent 的 async work 開始時會
+捕捉當下版本，await 完成後必須再次確認自己仍是 current version，才可以
+寫入 evidence 或 final output。若舊 FactCheck 或 Writer 在較新的 receive
+之後才完成，只會留下 `superseded async result` trace，不得覆蓋新結果，
+也不得 emit 舊版本。
+
+Session isolation 也在這一階段落地。每個 coordinator instance 各自擁有
+agent sessions、evidence cache、input version、output 與 trace collector，
+沒有 module-level mutable state。因此一個 coordinator 的 claim change、
+late result 或 dispose 都不會改動另一個 coordinator。
+
+需要守住的限制是：目前只證明固定的 FactCheck-to-Writer reference flow。
+它不包含 autonomous planning、dynamic team formation、tool selection、
+arbitrary agent graph、distributed delivery、retry、exactly-once execution，
+也還沒有 snapshot persistence 或 process recovery。可序列化並跨 boundary
+傳遞的是 envelope 與 output；sessions、model functions、promises 和其他
+live runtime handles 仍然只能存在 process-local。Snapshot 與 restore
+會留到 Task 51 在 owned agent-runtime boundary 上驗證。

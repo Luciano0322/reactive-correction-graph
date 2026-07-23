@@ -6,6 +6,7 @@ correction runtime inside a LangGraph workflow.
 See [TDD Workflow](./docs/tdd-workflow.md) for the red-green-refactor process used to add runtime behavior.
 See [Headless Session SDK](./docs/headless-session-sdk.md) for how CLI, web, and LangGraph integrations depend on the shared session boundary.
 See [Durable LangGraph Session Boundary](./docs/durable-langgraph-session.md) for the checkpoint and restore boundary around graph sessions.
+See [Multi-Agent Contract Boundary](./docs/multi-agent-contracts.md) for the two-agent roles, ownership model, message contracts, and explicit non-goals.
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
 See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama demo path.
 
@@ -52,6 +53,22 @@ Non-goals:
 - This does not claim the current repo should be published as the final npm
   package; a future package can be extracted after the reference demo proves
   the boundary is useful.
+
+## Multi-Agent Contract Boundary
+
+Task 49 defines the contracts required before implementing live multi-agent
+coordination. The initial design has a FactCheck Agent and a Writer Agent, each
+with a private session boundary. A framework-neutral coordinator owns their
+lifecycle, while agents exchange versioned JSON-compatible envelopes instead
+of live runtime objects.
+
+This stage defines identity, causality, validation, stale diagnostics, and
+session isolation. It does not yet implement message routing, autonomous
+planning, dynamic teams, tool selection, shared mutable runtime state, or a
+LangGraph-specific coordinator.
+
+See [Multi-Agent Contract Boundary](./docs/multi-agent-contracts.md) for the
+roles, public APIs, ownership rules, and explicit non-goals.
 
 ## LangGraph Reference Integration
 

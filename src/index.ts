@@ -54,3 +54,25 @@ export type {
   FinalResult,
   StyleReviewResult,
 } from "./schemas/correction.js";
+
+export {
+  parseAgentMessageEnvelope,
+  serializeAgentMessageEnvelope,
+} from "./agents/agentContracts.js";
+export type {
+  AgentError,
+  AgentIdentity,
+  AgentMessageEnvelope,
+  AgentResult,
+  JsonPrimitive,
+  JsonValue,
+  ParseAgentMessageEnvelopeOptions,
+} from "./agents/agentContracts.js";
+
+export { createAgentCoordinatorBoundary } from "./agents/coordinatorContracts.js";
+export type {
+  AgentCoordinatorBoundary,
+  AgentSessionBoundary,
+  AgentSessionFactory,
+  CreateAgentCoordinatorBoundaryOptions,
+} from "./agents/coordinatorContracts.js";

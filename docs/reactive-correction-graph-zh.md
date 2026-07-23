@@ -1946,3 +1946,51 @@ pnpm run demo:reference
 這份 bundle 證明的是固定 deterministic scenario 中可觀察的 selective recomputation：style-only 更新可以 reuse settled fact-check work，而 claim-changing 更新會重新執行 fact check。它仍然不代表模型品質、事實正確性、延遲、token、成本或 production readiness。`scorecard.json` 也繼續保留 `subjectiveCorrectionQuality: not-evaluated`，讓 execution efficiency evidence 與主觀品質評估維持分離。
 
 因此 Task 48 完成的是 single-runtime reference application 的操作閉環：同一條 command 從 fixtures、runtime transitions、comparison、savings 一路走到可閱讀報告。下一階段若要進入 multi-agent，便能以這份單 runtime 證據作為基準，而不是在尚未收斂的 demo 上繼續增加協作複雜度。
+
+## Task 49: Multi-Agent Contract Definition
+
+Task 49 沒有立刻實作兩個 agent 的共作流程，而是先定義 multi-agent
+需要遵守的語言與 ownership boundary。這一步很重要，因為目前 runtime
+裡的 `factCheck`、`styleReview`、`rewriteDraft` 仍然是同一個 runtime
+中的 operations，並不是三個彼此隔離的 agents。
+
+目前先固定兩個角色：
+
+- FactCheck Agent：擁有 claim verification 與 evidence output。
+- Writer Agent：根據 draft、accepted evidence 與 style guidance 產生 revision。
+
+Coordinator 負責 routing 與 lifecycle；每個 agent 則擁有自己的 private
+session 與 runtime state。換句話說，一個 agent 對應一個 runtime
+ownership。Coordinator 可以建立、持有與 dispose sessions，但不能把
+FactCheck Agent 的 signals、promises、subscriptions 或 runtime object
+直接交給 Writer Agent。
+
+Agent 之間未來只透過 versioned、JSON-serializable message envelope
+溝通。`AgentMessageEnvelope` 會保存 sender、recipient、message ID、
+correlation ID、causation ID 與 input version。公開 parser
+`parseAgentMessageEnvelope` 會在資料進入 coordination behavior 前拒絕
+unknown recipient、malformed payload、identity role mismatch 與 stale
+input version，避免錯誤訊息靜默改寫 agent state。
+
+目前公開的 framework-neutral contracts 包含：
+
+- `AgentIdentity`
+- `AgentMessageEnvelope`
+- `AgentResult`
+- `parseAgentMessageEnvelope`
+- `AgentSessionBoundary`
+- `createAgentCoordinatorBoundary`
+
+`createAgentCoordinatorBoundary` 只負責建立並持有 FactCheck 與 Writer
+sessions，確保兩個 coordinator instances 不會共享 session state，且
+dispose 只影響自己擁有的 sessions。它還沒有實作 message routing 或
+reactive invalidation；真正的 two-agent vertical slice 會留到 Task 50。
+
+這個階段的 explicit non-goals 也已固定：不處理 autonomous planning、
+dynamic team formation、tool selection、shared mutable runtime state、
+LangGraph-specific coordinator、React/Vue integration，也不宣稱 real LLM
+quality improvement。LangGraph、HTTP、UI、database 與 provider 都留在
+contract boundary 外面。
+
+完整角色、ownership、public API 與 non-goals 記錄在
+`docs/multi-agent-contracts.md`。

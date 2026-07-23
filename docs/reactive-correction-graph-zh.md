@@ -2048,3 +2048,55 @@ arbitrary agent graph、distributed delivery、retry、exactly-once execution，
 傳遞的是 envelope 與 output；sessions、model functions、promises 和其他
 live runtime handles 仍然只能存在 process-local。Snapshot 與 restore
 會留到 Task 51 在 owned agent-runtime boundary 上驗證。
+
+## Task 51：Multi-Agent Snapshot And Recovery
+
+Task 51 把 Task 50 的 live two-agent coordinator 延伸成可經過 JSON
+保存與恢復的 continuity boundary。這次不是只在 aggregate object 上手寫
+clone，而是讓 FactCheck Agent 與 Writer Agent 各自建立真正的
+`@signal-kernel/snapshot` scope；coordinator 再負責包裝 causal input
+version、accepted evidence、settled output、trace 與兩個 agent identities。
+
+公開 API 增加：
+
+- `coordinator.snapshot()`
+- `parseTwoAgentCorrectionCoordinatorSnapshot()`
+- `restoreTwoAgentCorrectionCoordinator()`
+- `TwoAgentCorrectionCoordinatorSnapshot`
+
+Snapshot 使用 `schemaVersion: 1`。每個 agent runtime document 都有固定的
+graph id/version 與 coordinator-specific instance id，並只登錄一個
+JSON-compatible `settledState` signal。Promises、AbortController、model
+functions、subscriptions、sessions 與其他 live handles 不會被序列化。
+
+Restore 不是把原本的 coordinator 原地倒帶，而是建立新的 process-local
+coordinator 與兩個 agent sessions，再還原 agent scopes 和 aggregate
+causal state。因為舊 runtime 的 promises 或 callbacks 不會跨過 snapshot
+boundary，所以 pre-restore async work 即使晚完成，也不能改寫 restored
+output 或 trace。從同一份 snapshot restore 兩次，也會得到彼此隔離的
+instances。
+
+恢復後的第一個 receive 會接續原本 input version。Style-only update 仍會
+reuse settled FactCheck evidence；claim-changing update 仍會把舊 evidence
+標記為 stale 並重新執行 FactCheck。Trace baseline 會被保留，新事件則接續
+既有 `trace-N`，避免 ID 重複。
+
+Restore boundary 現在接受 `unknown`，先由 parser 檢查 aggregate schema、
+JSON compatibility、必要欄位、evidence causality、output/trace shape、
+agent identity，以及官方 `SnapshotDocument` graph identity。Malformed、
+schema mismatch、缺少 agent snapshot 或 identity mismatch 都會在建立 live
+runtime 前得到穩定診斷，不再洩漏底層 TypeError。
+
+LangGraph checkpoint state 可以保存這份 JSON-compatible snapshot，但只能
+保存 data，不能保存 live coordinator。LangGraph 與 host 仍然負責 thread、
+checkpoint timing、storage、retention、interrupt 與 replay policy；這個
+專案沒有提供 production checkpointer 或 database adapter。
+
+目前需要誠實保留一項限制：Only settled coordinator snapshots are
+currently supported. 尚未 settled 的 pending workflow 不能直接 snapshot，
+也沒有 interrupted-work replay、自動 retry、distributed locking、
+deduplication 或 exactly-once execution。Snapshot 是 continuity，不是 live
+state sharing，也不會把非確定性的 LLM call 變成 deterministic behavior。
+
+完整 public API、LangGraph checkpoint boundary 與 durability limits 記錄在
+`docs/multi-agent-snapshot-recovery.md`。

@@ -7,6 +7,7 @@ See [TDD Workflow](./docs/tdd-workflow.md) for the red-green-refactor process us
 See [Headless Session SDK](./docs/headless-session-sdk.md) for how CLI, web, and LangGraph integrations depend on the shared session boundary.
 See [Durable LangGraph Session Boundary](./docs/durable-langgraph-session.md) for the checkpoint and restore boundary around graph sessions.
 See [Multi-Agent Contract Boundary](./docs/multi-agent-contracts.md) for the two-agent roles, ownership model, message contracts, and explicit non-goals.
+See [Multi-Agent Snapshot Recovery](./docs/multi-agent-snapshot-recovery.md) for the versioned coordinator snapshot, restore API, LangGraph checkpoint boundary, and durability limits.
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
 See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama demo path.
 
@@ -73,6 +74,28 @@ LangGraph-specific coordinator.
 
 See [Multi-Agent Contract Boundary](./docs/multi-agent-contracts.md) for the
 roles, public APIs, ownership rules, and explicit non-goals.
+
+## Multi-Agent Snapshot Recovery
+
+Task 51 adds `snapshot()` and
+`restoreTwoAgentCorrectionCoordinator()` to the deterministic two-agent
+reference boundary. Each owned agent uses `@signal-kernel/snapshot`, while the
+coordinator snapshot records causal input, accepted evidence, settled output,
+trace, and agent identity as JSON-compatible data.
+
+`parseTwoAgentCorrectionCoordinatorSnapshot()` validates untrusted checkpoint
+data before live sessions are created. Restoring creates a new isolated
+coordinator; it does not share runtime objects or pending work with the source
+instance.
+
+The snapshot may be stored in LangGraph checkpoint state, but LangGraph and the
+host still own checkpoint policy and persistence. This project currently
+supports settled coordinator snapshots only and does not provide interrupted
+workflow replay, a database adapter, distributed delivery, or exactly-once
+execution.
+
+See [Multi-Agent Snapshot Recovery](./docs/multi-agent-snapshot-recovery.md) for
+the public API, restore semantics, checkpoint boundary, and durability limits.
 
 ## LangGraph Reference Integration
 

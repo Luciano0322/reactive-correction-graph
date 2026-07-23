@@ -20,6 +20,9 @@ importers:
       '@signal-kernel/core':
         specifier: 0.1.3
         version: 0.1.3
+      '@signal-kernel/snapshot':
+        specifier: 0.1.0
+        version: 0.1.0
     devDependencies:
       '@playwright/test':
         specifier: ^1.61.1
@@ -516,6 +519,9 @@ packages:
 
   '@signal-kernel/core@0.1.3':
     resolution: {integrity: sha512-cnltdkJvFizsErv6x1mfZWI6yrm4CMaeL0uIKEhElEXtNSVxFdSFGd2CyRzeAc0VlGJLTfXNOQD5mpcXT6+RWw==}
+
+  '@signal-kernel/snapshot@0.1.0':
+    resolution: {integrity: sha512-ogH0RDWd+ZG+hFnRq4jC2JGwGVcGWl3fsEuYVfLVWpDhgyNp2PJ3vQgvYkRdP/OdCBFhut+XD2R/J9//HEkjsA==}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -1118,6 +1124,8 @@ snapshots:
       '@signal-kernel/core': 0.1.3
 
   '@signal-kernel/core@0.1.3': {}
+
+  '@signal-kernel/snapshot@0.1.0': {}
 
   '@standard-schema/spec@1.1.0': {}
 

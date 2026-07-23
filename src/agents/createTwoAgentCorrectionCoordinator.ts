@@ -1,3 +1,4 @@
+import type { SnapshotDocument } from "@signal-kernel/snapshot";
 import { createMockCorrectionModel } from "../llm/mockCorrectionModel.js";
 import type { CorrectionRuntimeModel } from "../runtime/createCorrectionRuntime.js";
 import type {
@@ -20,6 +21,11 @@ import {
   createAgentCoordinatorBoundary,
   type AgentSessionBoundary,
 } from "./coordinatorContracts.js";
+import {
+  createAgentRuntimeSnapshotAdapter,
+  type AgentRuntimeSnapshotAdapter,
+} from "./createAgentRuntimeSnapshotAdapter.js";
+import { parseTwoAgentCorrectionCoordinatorSnapshot } from "./parseTwoAgentCorrectionCoordinatorSnapshot.js";
 
 export type TwoAgentCorrectionOutput = {
   inputVersion: number;
@@ -31,14 +37,41 @@ export type TwoAgentCorrectionCoordinator = {
   receive(input: CorrectionRuntimeInput): void;
   runUntilSettled(): Promise<void>;
   emit(): TwoAgentCorrectionOutput;
+  snapshot(): TwoAgentCorrectionCoordinatorSnapshot;
   trace(): TraceEvent[];
   dispose(): void;
+};
+
+export type TwoAgentCorrectionCoordinatorSnapshot = {
+  schemaVersion: 1;
+  coordinatorId: string;
+  status: "settled";
+  inputVersion: number;
+  currentInput: CorrectionRuntimeInput;
+  acceptedEvidence: AgentMessageEnvelope;
+  output: TwoAgentCorrectionOutput;
+  trace: TraceEvent[];
+  agentSnapshots: {
+    "fact-check-agent": {
+      identity: FactCheckAgentIdentity;
+      runtimeSnapshot: SnapshotDocument;
+    };
+    "writer-agent": {
+      identity: WriterAgentIdentity;
+      runtimeSnapshot: SnapshotDocument;
+    };
+  };
 };
 
 export type TwoAgentCorrectionCoordinatorOptions = {
   coordinatorId: string;
   model?: Partial<CorrectionRuntimeModel>;
 };
+
+export type RestoreTwoAgentCorrectionCoordinatorOptions = Pick<
+  TwoAgentCorrectionCoordinatorOptions,
+  "model"
+>;
 
 type FactCheckAgentIdentity = Extract<
   AgentIdentity,
@@ -53,6 +86,13 @@ type WriterAgentIdentity = Extract<
 type FactCheckAgentSession = AgentSessionBoundary & {
   readonly identity: FactCheckAgentIdentity;
   verify(claims: Claim[]): Promise<FactCheckResult>;
+  settleSnapshot(input: {
+    claims: Claim[];
+    factCheckResult: FactCheckResult;
+    inputVersion: number;
+  }): void;
+  restoreSnapshot(snapshot: SnapshotDocument): void;
+  snapshot(): SnapshotDocument;
 };
 
 type WriterAgentSession = AgentSessionBoundary & {
@@ -61,6 +101,14 @@ type WriterAgentSession = AgentSessionBoundary & {
     input: CorrectionRuntimeInput,
     evidenceEnvelope: AgentMessageEnvelope,
   ): Promise<FinalResult>;
+  settleSnapshot(input: {
+    currentInput: CorrectionRuntimeInput;
+    evidenceEnvelope: AgentMessageEnvelope;
+    finalResult: FinalResult;
+    inputVersion: number;
+  }): void;
+  restoreSnapshot(snapshot: SnapshotDocument): void;
+  snapshot(): SnapshotDocument;
 };
 
 type CorrectionAgentSession = FactCheckAgentSession | WriterAgentSession;
@@ -73,6 +121,29 @@ type FactCheckEvidencePayload = {
 export function createTwoAgentCorrectionCoordinator(
   options: TwoAgentCorrectionCoordinatorOptions,
 ): TwoAgentCorrectionCoordinator {
+  return createCoordinator(options);
+}
+
+export function restoreTwoAgentCorrectionCoordinator(
+  snapshot: unknown,
+  options: RestoreTwoAgentCorrectionCoordinatorOptions = {},
+): TwoAgentCorrectionCoordinator {
+  const parsedSnapshot =
+    parseTwoAgentCorrectionCoordinatorSnapshot(snapshot);
+
+  return createCoordinator(
+    {
+      coordinatorId: parsedSnapshot.coordinatorId,
+      model: options.model,
+    },
+    parsedSnapshot,
+  );
+}
+
+function createCoordinator(
+  options: TwoAgentCorrectionCoordinatorOptions,
+  restoredSnapshot?: TwoAgentCorrectionCoordinatorSnapshot,
+): TwoAgentCorrectionCoordinator {
   const model: CorrectionRuntimeModel = {
     ...createMockCorrectionModel(),
     ...options.model,
@@ -83,11 +154,19 @@ export function createTwoAgentCorrectionCoordinator(
     coordinatorId: options.coordinatorId,
     createAgentSession(identity) {
       if (identity.agentId === "fact-check-agent") {
-        factCheckAgent = createFactCheckAgentSession(identity, model);
+        factCheckAgent = createFactCheckAgentSession(
+          identity,
+          model,
+          options.coordinatorId,
+        );
         return factCheckAgent;
       }
 
-      writerAgent = createWriterAgentSession(identity, model);
+      writerAgent = createWriterAgentSession(
+        identity,
+        model,
+        options.coordinatorId,
+      );
       return writerAgent;
     },
   });
@@ -109,6 +188,10 @@ export function createTwoAgentCorrectionCoordinator(
       }
     | undefined;
   let disposed = false;
+
+  if (restoredSnapshot) {
+    restoreCoordinatorState(restoredSnapshot);
+  }
 
   return {
     receive(input) {
@@ -163,6 +246,12 @@ export function createTwoAgentCorrectionCoordinator(
         inputVersion: settledInputVersion,
         evidenceInputVersion: routedEvidence.inputVersion,
       });
+      ownedWriterAgent.settleSnapshot({
+        currentInput: settledInput,
+        evidenceEnvelope: routedEvidence,
+        finalResult,
+        inputVersion: settledInputVersion,
+      });
 
       output = {
         inputVersion: settledInputVersion,
@@ -183,6 +272,35 @@ export function createTwoAgentCorrectionCoordinator(
       }
 
       return cloneOutput(output);
+    },
+    snapshot() {
+      assertActive(disposed);
+      if (!currentInput || !output) {
+        throw new Error(
+          "Two-agent coordinator must settle before snapshotting",
+        );
+      }
+
+      return cloneCoordinatorSnapshot({
+        schemaVersion: 1,
+        coordinatorId: ownership.coordinatorId,
+        status: "settled",
+        inputVersion,
+        currentInput,
+        acceptedEvidence: output.evidenceEnvelope,
+        output,
+        trace: traceCollector.events(),
+        agentSnapshots: {
+          "fact-check-agent": {
+            identity: ownedFactCheckAgent.identity,
+            runtimeSnapshot: ownedFactCheckAgent.snapshot(),
+          },
+          "writer-agent": {
+            identity: ownedWriterAgent.identity,
+            runtimeSnapshot: ownedWriterAgent.snapshot(),
+          },
+        },
+      });
     },
     trace() {
       assertActive(disposed);
@@ -250,6 +368,11 @@ export function createTwoAgentCorrectionCoordinator(
       claims: cloneClaims(input.claims),
       envelope,
     };
+    ownedFactCheckAgent.settleSnapshot({
+      claims: input.claims,
+      factCheckResult,
+      inputVersion: input.inputVersion,
+    });
     traceCollector.emitted("runtime", "factCheckEvidence", {
       inputVersion: input.inputVersion,
       sender: envelope.sender.agentId,
@@ -259,19 +382,75 @@ export function createTwoAgentCorrectionCoordinator(
 
     return envelope;
   }
+
+  function restoreCoordinatorState(
+    snapshot: TwoAgentCorrectionCoordinatorSnapshot,
+  ) {
+    ownedFactCheckAgent.restoreSnapshot(
+      snapshot.agentSnapshots["fact-check-agent"].runtimeSnapshot,
+    );
+    ownedWriterAgent.restoreSnapshot(
+      snapshot.agentSnapshots["writer-agent"].runtimeSnapshot,
+    );
+
+    const acceptedEvidence = cloneEnvelope(
+      snapshot.acceptedEvidence,
+    );
+    const evidence = readEvidencePayload(acceptedEvidence);
+
+    currentInput = cloneRuntimeInput(snapshot.currentInput);
+    inputVersion = snapshot.inputVersion;
+    output = cloneOutput(snapshot.output);
+    settledEvidence = {
+      claims: cloneClaims(evidence.claims),
+      envelope: acceptedEvidence,
+    };
+
+    for (const event of snapshot.trace) {
+      traceCollector.record({
+        id: event.id,
+        at: event.at,
+        scope: event.scope,
+        type: event.type,
+        label: event.label,
+        metadata: event.metadata,
+      });
+    }
+  }
 }
 
 function createFactCheckAgentSession(
   identity: FactCheckAgentIdentity,
   model: CorrectionRuntimeModel,
+  coordinatorId: string,
 ): FactCheckAgentSession {
   let disposed = false;
+  const snapshotAdapter = createSnapshotAdapter(
+    identity,
+    coordinatorId,
+  );
 
   return {
     identity,
     async verify(claims) {
       assertAgentActive(disposed, identity);
       return model.factCheckClaims(claims);
+    },
+    settleSnapshot(input) {
+      assertAgentActive(disposed, identity);
+      snapshotAdapter.settle({
+        inputVersion: input.inputVersion,
+        claims: input.claims.map((claim) => ({ ...claim })),
+        factCheckResult: cloneFactCheckResult(input.factCheckResult),
+      });
+    },
+    restoreSnapshot(snapshot) {
+      assertAgentActive(disposed, identity);
+      snapshotAdapter.restore(snapshot);
+    },
+    snapshot() {
+      assertAgentActive(disposed, identity);
+      return snapshotAdapter.snapshot();
     },
     dispose() {
       disposed = true;
@@ -282,8 +461,13 @@ function createFactCheckAgentSession(
 function createWriterAgentSession(
   identity: WriterAgentIdentity,
   model: CorrectionRuntimeModel,
+  coordinatorId: string,
 ): WriterAgentSession {
   let disposed = false;
+  const snapshotAdapter = createSnapshotAdapter(
+    identity,
+    coordinatorId,
+  );
 
   return {
     identity,
@@ -317,6 +501,23 @@ function createWriterAgentSession(
           .filter((item) => item.verdict === "needs-review")
           .map((item) => item.note),
       };
+    },
+    settleSnapshot(input) {
+      assertAgentActive(disposed, identity);
+      snapshotAdapter.settle({
+        inputVersion: input.inputVersion,
+        currentInput: { ...input.currentInput },
+        evidenceEnvelope: cloneEnvelope(input.evidenceEnvelope),
+        finalResult: cloneFinalResult(input.finalResult),
+      });
+    },
+    restoreSnapshot(snapshot) {
+      assertAgentActive(disposed, identity);
+      snapshotAdapter.restore(snapshot);
+    },
+    snapshot() {
+      assertAgentActive(disposed, identity);
+      return snapshotAdapter.snapshot();
     },
     dispose() {
       disposed = true;
@@ -405,6 +606,47 @@ function cloneClaims(claims: Claim[]): Claim[] {
   return claims.map((claim) => ({ ...claim }));
 }
 
+function cloneRuntimeInput(
+  input: CorrectionRuntimeInput,
+): CorrectionRuntimeInput {
+  return { ...input };
+}
+
+function cloneFactCheckResult(
+  factCheckResult: FactCheckResult,
+): FactCheckResult {
+  return {
+    items: factCheckResult.items.map((item) => ({ ...item })),
+  };
+}
+
+function cloneFinalResult(finalResult: FinalResult): FinalResult {
+  return {
+    revisedDraft: finalResult.revisedDraft,
+    summary: [...finalResult.summary],
+    unresolvedIssues: [...finalResult.unresolvedIssues],
+  };
+}
+
+function cloneEnvelope(
+  envelope: AgentMessageEnvelope,
+): AgentMessageEnvelope {
+  return parseAgentMessageEnvelope(
+    serializeAgentMessageEnvelope(envelope),
+  );
+}
+
+function createSnapshotAdapter(
+  identity: AgentIdentity,
+  coordinatorId: string,
+): AgentRuntimeSnapshotAdapter {
+  return createAgentRuntimeSnapshotAdapter({
+    graphId: `reactive-correction-graph/${identity.agentId}`,
+    graphVersion: "1",
+    instanceId: `${coordinatorId}/${identity.agentId}`,
+  });
+}
+
 function buildCorrectionPlan(input: {
   factCheckResult: FactCheckResult;
   styleSuggestions: string[];
@@ -446,4 +688,12 @@ function cloneOutput(
   output: TwoAgentCorrectionOutput,
 ): TwoAgentCorrectionOutput {
   return JSON.parse(JSON.stringify(output)) as TwoAgentCorrectionOutput;
+}
+
+function cloneCoordinatorSnapshot(
+  snapshot: TwoAgentCorrectionCoordinatorSnapshot,
+): TwoAgentCorrectionCoordinatorSnapshot {
+  return JSON.parse(
+    JSON.stringify(snapshot),
+  ) as TwoAgentCorrectionCoordinatorSnapshot;
 }

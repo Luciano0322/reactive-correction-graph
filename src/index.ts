@@ -79,9 +79,13 @@ export type {
 
 export {
   createTwoAgentCorrectionCoordinator,
+  restoreTwoAgentCorrectionCoordinator,
 } from "./agents/createTwoAgentCorrectionCoordinator.js";
+export { parseTwoAgentCorrectionCoordinatorSnapshot } from "./agents/parseTwoAgentCorrectionCoordinatorSnapshot.js";
 export type {
+  RestoreTwoAgentCorrectionCoordinatorOptions,
   TwoAgentCorrectionCoordinator,
   TwoAgentCorrectionCoordinatorOptions,
+  TwoAgentCorrectionCoordinatorSnapshot,
   TwoAgentCorrectionOutput,
 } from "./agents/createTwoAgentCorrectionCoordinator.js";

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "target": "@signal-kernel/loop-runtime@0.1.0",
+  "status": "not-ready",
+  "decision": "defer-package-creation",
+  "packageWorkspaceCreated": false,
+  "passingEvidence": [
+    {
+      "id": "black-box-lifecycle",
+      "evidence": "src/testing/twoAgentLoopRuntimeBehaviorHarness.test.ts"
+    },
+    {
+      "id": "settled-snapshot-recovery",
+      "evidence": "src/agents/twoAgentCorrectionCoordinatorSnapshot.test.ts"
+    },
+    {
+      "id": "restored-session-isolation",
+      "evidence": "src/agents/twoAgentCorrectionCoordinatorRestoreGuards.test.ts"
+    },
+    {
+      "id": "comparison-and-savings-baseline",
+      "evidence": "docs/rfcs/signal-kernel-loop-runtime-extraction-baseline.json"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "architecture-import-boundary",
+      "evidence": "src/architecture/loopRuntimeCandidateBoundary.test.ts",
+      "exitCriterion": "An implementation candidate containing the required lifecycle mechanics has no correction, coordinator, LangGraph, Node, DOM, React, or Vue imports."
+    },
+    {
+      "id": "pending-restore-recomputation",
+      "evidence": "docs/multi-agent-snapshot-recovery.md",
+      "exitCriterion": "A black-box test proves pending work is omitted from a snapshot and recomputed after restore without stale commits."
+    },
+    {
+      "id": "public-trace-taxonomy",
+      "evidence": "src/trace/types.ts",
+      "exitCriterion": "Versioned public events distinguish restored, reused, recomputed, and superseded work without adapter-only normalization."
+    },
+    {
+      "id": "generic-inspection-contract",
+      "evidence": "docs/rfcs/signal-kernel-loop-runtime-proposal.md",
+      "exitCriterion": "A black-box contract exposes pending status and the last stable output without treating it as a new emission."
+    },
+    {
+      "id": "typed-error-and-disposal-contract",
+      "evidence": "src/session/createCorrectionSession.test.ts",
+      "exitCriterion": "Framework-neutral tests define typed settlement failures, idempotent disposal, and stale async containment after disposal."
+    },
+    {
+      "id": "resource-and-effect-registration-contract",
+      "evidence": "docs/rfcs/signal-kernel-loop-runtime-proposal.md",
+      "exitCriterion": "A second non-correction loop validates the smallest resource/effect registration API without introducing a graph DSL."
+    }
+  ],
+  "architecture": {
+    "status": "blocked",
+    "candidateSourceFiles": [
+      "src/runtime/signalNode.ts",
+      "src/runtime/createCorrectionRuntime.ts",
+      "src/runtime/correctionRuntimeAdapter.ts",
+      "src/session/createCorrectionSession.ts",
+      "src/trace/types.ts",
+      "src/trace/createTraceCollector.ts",
+      "src/trace/liveTraceEvents.ts",
+      "src/agents/createAgentRuntimeSnapshotAdapter.ts",
+      "src/agents/createTwoAgentCorrectionCoordinator.ts"
+    ],
+    "violations": [
+      {
+        "file": "src/runtime/createCorrectionRuntime.ts",
+        "specifier": "../llm/mockCorrectionModel.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/runtime/createCorrectionRuntime.ts",
+        "specifier": "../schemas/correction.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/runtime/correctionRuntimeAdapter.ts",
+        "specifier": "../schemas/correction.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/runtime/correctionRuntimeAdapter.ts",
+        "specifier": "./createCorrectionRuntime.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/session/createCorrectionSession.ts",
+        "specifier": "../runtime/createCorrectionRuntime.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/session/createCorrectionSession.ts",
+        "specifier": "../schemas/correction.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/agents/createTwoAgentCorrectionCoordinator.ts",
+        "specifier": "../llm/mockCorrectionModel.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/agents/createTwoAgentCorrectionCoordinator.ts",
+        "specifier": "../runtime/createCorrectionRuntime.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/agents/createTwoAgentCorrectionCoordinator.ts",
+        "specifier": "../schemas/correction.js",
+        "kind": "correction"
+      },
+      {
+        "file": "src/agents/createTwoAgentCorrectionCoordinator.ts",
+        "specifier": "./coordinatorContracts.js",
+        "kind": "coordinator"
+      },
+      {
+        "file": "src/agents/createTwoAgentCorrectionCoordinator.ts",
+        "specifier": "./parseTwoAgentCorrectionCoordinatorSnapshot.js",
+        "kind": "correction"
+      }
+    ]
+  },
+  "regressionBaseline": "docs/rfcs/signal-kernel-loop-runtime-extraction-baseline.json"
+}

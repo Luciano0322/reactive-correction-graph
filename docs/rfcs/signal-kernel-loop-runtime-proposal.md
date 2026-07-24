@@ -4,6 +4,8 @@
 - Date: 2026-07-20
 - Target release: experimental `0.1.0`
 - Validation repository: `reactive-correction-graph`
+- Readiness audit: Not ready
+- Extraction decision: Defer package creation
 
 ## Summary
 
@@ -45,7 +47,7 @@ runtime type from snapshots. If the same execution lifecycle works for these
 independent runtimes without learning agent semantics, it is a viable package
 boundary.
 
-## Decision Summary
+## Accepted Decisions
 
 The current proposal records these agreed decisions:
 
@@ -402,19 +404,95 @@ Tasks 49-51 prove the multi-agent contracts, vertical slice, and recovery
 behavior. Task 52 performs the extraction readiness audit before a package repo
 is created.
 
+No publishable package implementation or source-file move begins until the readiness audit passes.
+
+## Extraction Evidence Matrix
+
+This matrix audits candidate mechanics against observable behavior in the
+current correction POC. `Proven in the POC` means the cited behavior passes in
+this repository; it does not mean the generic package API or implementation
+already exists. `Partial evidence` and `Missing extraction evidence` are
+blocking gaps unless a later readiness decision explicitly narrows the first
+release.
+
+| Candidate generic mechanic | Current source ownership | Task 49-51 behavior evidence | Readiness |
+| --- | --- | --- | --- |
+| Opaque `receive(input)` and lifecycle boundary | `src/runtime/signalNode.ts`; `src/agents/coordinatorContracts.ts` | Task 49: `src/agents/agentContracts.test.ts` round-trips opaque serialized payloads, while `src/agents/coordinatorContracts.test.ts` proves isolated session ownership. | **Partial evidence**: the POC separates message and runtime ownership, but no domain-neutral `LoopDefinition` contract exists. |
+| Fixed-point settlement and settled-only `emit()` | `src/runtime/createCorrectionRuntime.ts`; `src/agents/createTwoAgentCorrectionCoordinator.ts` | Task 50: `src/agents/createTwoAgentCorrectionCoordinator.test.ts` settles both agents before emitting and follows the newest receive when older work finishes late. Task 52d/e reruns those lifecycle expectations through a reusable black-box suite and POC adapter. | **Proven through the POC adapter**: fixed-point stage ordering and settled-only emission pass. Pending-only inspection remains a separate missing capability below. |
+| Latest-epoch stale-result containment | `src/agents/createTwoAgentCorrectionCoordinator.ts` | Task 50: `src/agents/createTwoAgentCorrectionCoordinator.test.ts` rejects a late FactCheck result from a superseded receive. | **Proven in the POC**: the newest causal input wins without stale evidence committing. |
+| Settled snapshot reuse and restore isolation | `src/agents/createAgentRuntimeSnapshotAdapter.ts`; `src/agents/createTwoAgentCorrectionCoordinator.ts`; `src/agents/parseTwoAgentCorrectionCoordinatorSnapshot.ts` | Task 51: `src/agents/twoAgentCorrectionCoordinatorSnapshot.test.ts` proves JSON round-trip, settled reuse, restore-and-continue, and late source-work isolation; `src/agents/twoAgentCorrectionCoordinatorRestoreGuards.test.ts` proves isolated restores and identity/schema rejection. | **Proven in the POC**: compatible settled snapshots restore into isolated live runtimes. |
+| Omitted-pending-work recomputation | `src/agents/createTwoAgentCorrectionCoordinator.ts` currently rejects snapshots before settlement. | Task 51 documents that pending work is not serialized, but its snapshot tests start from settled snapshots only. | **Missing extraction evidence**: interrupted-work replay and automatic recomputation from a pending snapshot are not implemented. |
+| Restored, reused, recomputed, and superseded trace semantics | `src/trace/types.ts`; `src/agents/createTwoAgentCorrectionCoordinator.ts` | Task 50 uses `skipped` metadata for reuse and `stale` metadata for invalidation; Task 51 preserves the restored trace baseline in `src/agents/twoAgentCorrectionCoordinatorSnapshot.test.ts`. | **Partial evidence**: reuse and stale behavior are observable, but `restored`, `recomputed`, and `superseded` are not yet versioned trace event types. |
+| Pending inspection and live trace subscription | `src/runtime/createCorrectionRuntime.ts`; `src/session/createCorrectionSession.ts` | Tasks 49-51 do not exercise a generic `inspect()` contract or a runtime-neutral subscription contract. | **Missing extraction evidence**: the proposed inspection surface remains a design, not a validated package behavior. |
+| Error propagation, no automatic retry, and disposal | `src/runtime/createCorrectionRuntime.ts`; `src/session/createCorrectionSession.ts`; `src/agents/coordinatorContracts.ts` | Task 49: `src/agents/coordinatorContracts.test.ts` proves owned-session disposal and coordinator isolation. Tasks 49-51 do not provide a generic typed-error or no-retry behavior suite. | **Partial evidence**: disposal ownership is proven, while generic error and retry semantics remain unproven. |
+
+## Black-Box POC Validation And Migration Baseline
+
+Task 52d defines the framework-neutral lifecycle verifier in
+`src/testing/loopRuntimeLifecycleBehaviorSuite.ts`. It exercises fixed-point
+settlement, latest-epoch wins, settled-only emission, ordered JSON-compatible
+trace, and settled snapshot restore only through the proposed black-box
+lifecycle methods.
+
+Task 52e connects that verifier to the existing two-agent coordinator through
+`src/testing/twoAgentLoopRuntimeBehaviorHarness.ts`. The adapter delegates
+execution and snapshot behavior to the POC and only normalizes domain trace
+events into the candidate lifecycle vocabulary.
+
+Passing through the POC adapter does not make the candidate package boundary import-clean or extraction-ready.
+The architecture guard still reports correction and coordinator imports, while
+pending snapshot recomputation, generic inspection, and the final public trace
+taxonomy remain unresolved.
+
+The deterministic before-extraction regression fixture is
+`docs/rfcs/signal-kernel-loop-runtime-extraction-baseline.json`. It records the
+initial eager/reactive call counts, style-only and claim-changing comparison,
+and per-operation recomputation savings from
+`src/examples/reference-scenario.json`. Future package migration must preserve
+this baseline or explain and approve an intentional change. It is not a
+latency, token, cost, provider-quality, or semantic-correctness benchmark.
+
+## Readiness Audit Result
+
+Decision: do not create `packages/loop-runtime` or move runtime source files.
+
+The machine-readable audit is
+`docs/rfcs/signal-kernel-loop-runtime-readiness-audit.json`. The current POC
+proves the lifecycle shape, latest-epoch containment, settled snapshot
+continuity, restored-session isolation, and the deterministic comparison
+baseline. It does not yet prove an import-clean implementation boundary.
+
+Extraction remains blocked by:
+
+- correction and coordinator imports in the files that currently own the
+  candidate mechanics
+- no pending-snapshot omitted-work recomputation behavior
+- no versioned public `restored`, `reused`, `recomputed`, and `superseded`
+  trace taxonomy
+- no generic pending inspection and last-stable-output contract
+- no framework-neutral typed error and disposal behavior suite
+- no resource/effect registration contract validated by a second
+  non-correction loop
+
+The decision is a deferral, not a rejection of the package direction. A future
+audit may change the status to ready only after every blocker has a passing
+black-box test and the architecture audit reports no forbidden imports.
+
 ## Extraction Plan
 
-1. Complete Tasks 49-51 in `reactive-correction-graph`.
-2. Complete Task 52 and update this RFC with evidence and unresolved decisions.
-3. Create `packages/loop-runtime` in the signal-kernel workspace.
-4. Port behavior tests before moving implementation mechanics.
-5. Implement the smallest generic lifecycle that passes those tests.
-6. Convert the correction runtime into a loop definition that consumes the
+1. Preserve the Task 49-52 evidence and before-extraction baseline in
+   `reactive-correction-graph`.
+2. Close the blockers recorded in the machine-readable readiness audit.
+3. Rerun Task 52 and record an explicit ready decision.
+4. Only then create `packages/loop-runtime` in the signal-kernel workspace.
+5. Port behavior tests before moving implementation mechanics.
+6. Implement the smallest generic lifecycle that passes those tests.
+7. Convert the correction runtime into a loop definition that consumes the
    package through public exports.
-7. Remove duplicated local settlement, epoch, trace, and restore mechanics.
-8. Rerun reference comparison, savings, snapshot, browser, and multi-agent
+8. Remove duplicated local settlement, epoch, trace, and restore mechanics.
+9. Rerun reference comparison, savings, snapshot, browser, and multi-agent
    tests.
-9. Publish experimental `0.1.0` only after all release gates pass.
+10. Publish experimental `0.1.0` only after all release gates pass.
 
 The extraction is contract-driven. `createCorrectionRuntime.ts` should not be
 copied wholesale into the new package.
@@ -483,21 +561,19 @@ and would pull the package into framework-specific concerns.
 These risks are why the proposal requires multi-agent, restore, and external
 consumer validation before package extraction.
 
-## Open Questions
+## Open Question Dispositions
 
-- What is the smallest useful `LoopContext` resource registration contract?
-- How should effects report newly generated work to the settlement loop?
-- Which snapshot API from `@signal-kernel/snapshot` should loop-runtime expose,
-  wrap, or consume directly?
-- Which signal-kernel packages require singleton peer resolution?
-- What trace event taxonomy is stable enough for `0.1.0`?
-- How are loop type identity and snapshot migrations registered?
-- Should clocks and ID factories be required injections or testing-only hooks?
-- Does the first release need a `/testing` subpath?
-- What disposal guarantees are required for pending async resources?
-
-Task 52 must either resolve these questions or explicitly defer them with a
-testable limitation before package implementation begins.
+| Question | Disposition | Decision or exit criterion |
+| --- | --- | --- |
+| Smallest useful `LoopContext.resource()` contract | Deferred | A second non-correction loop must validate the minimum registration surface without creating a graph DSL. This blocks extraction. |
+| Effects that generate new work | Deferred | A black-box fixed-point case must prove how effects signal additional work without exposing scheduler internals. This blocks extraction. |
+| `@signal-kernel/snapshot` API exposure | Deferred | Keep direct snapshot compatibility in the POC; choose wrap-versus-expose only after the package-level dependency and peer-resolution tests exist. |
+| Singleton peer resolution | Deferred | Run a duplicate-install workspace test for core, async-runtime, and snapshot before selecting peer ranges or publishing. |
+| Trace event taxonomy | Deferred | Freeze a versioned taxonomy only after `restored`, `reused`, `recomputed`, and `superseded` are emitted without POC adapter normalization. This blocks extraction. |
+| Loop identity and snapshot migrations | Accepted | V1 snapshots require matching loop identity and schema. Incompatible snapshots fail; no migration registry is included in `0.1.0`. |
+| Clock and ID factories | Accepted | Runtime options may inject clock and ID factories for deterministic tests, with isomorphic defaults and no global mutable registry. |
+| `/testing` subpath | Deferred | Keep the behavior suite in the reference consumer until a second external adapter proves a public testing subpath is useful. |
+| Pending-work disposal guarantees | Accepted | Disposal is idempotent, rejects new lifecycle operations, and prevents pending async work from committing or emitting. Typed error details still require black-box tests. |
 
 ## Outcome If Accepted
 

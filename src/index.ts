@@ -54,3 +54,38 @@ export type {
   FinalResult,
   StyleReviewResult,
 } from "./schemas/correction.js";
+
+export {
+  parseAgentMessageEnvelope,
+  serializeAgentMessageEnvelope,
+} from "./agents/agentContracts.js";
+export type {
+  AgentError,
+  AgentIdentity,
+  AgentMessageEnvelope,
+  AgentResult,
+  JsonPrimitive,
+  JsonValue,
+  ParseAgentMessageEnvelopeOptions,
+} from "./agents/agentContracts.js";
+
+export { createAgentCoordinatorBoundary } from "./agents/coordinatorContracts.js";
+export type {
+  AgentCoordinatorBoundary,
+  AgentSessionBoundary,
+  AgentSessionFactory,
+  CreateAgentCoordinatorBoundaryOptions,
+} from "./agents/coordinatorContracts.js";
+
+export {
+  createTwoAgentCorrectionCoordinator,
+  restoreTwoAgentCorrectionCoordinator,
+} from "./agents/createTwoAgentCorrectionCoordinator.js";
+export { parseTwoAgentCorrectionCoordinatorSnapshot } from "./agents/parseTwoAgentCorrectionCoordinatorSnapshot.js";
+export type {
+  RestoreTwoAgentCorrectionCoordinatorOptions,
+  TwoAgentCorrectionCoordinator,
+  TwoAgentCorrectionCoordinatorOptions,
+  TwoAgentCorrectionCoordinatorSnapshot,
+  TwoAgentCorrectionOutput,
+} from "./agents/createTwoAgentCorrectionCoordinator.js";

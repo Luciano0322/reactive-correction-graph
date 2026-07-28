@@ -1946,3 +1946,157 @@ pnpm run demo:reference
 這份 bundle 證明的是固定 deterministic scenario 中可觀察的 selective recomputation：style-only 更新可以 reuse settled fact-check work，而 claim-changing 更新會重新執行 fact check。它仍然不代表模型品質、事實正確性、延遲、token、成本或 production readiness。`scorecard.json` 也繼續保留 `subjectiveCorrectionQuality: not-evaluated`，讓 execution efficiency evidence 與主觀品質評估維持分離。
 
 因此 Task 48 完成的是 single-runtime reference application 的操作閉環：同一條 command 從 fixtures、runtime transitions、comparison、savings 一路走到可閱讀報告。下一階段若要進入 multi-agent，便能以這份單 runtime 證據作為基準，而不是在尚未收斂的 demo 上繼續增加協作複雜度。
+
+## Task 49: Multi-Agent Contract Definition
+
+Task 49 沒有立刻實作兩個 agent 的共作流程，而是先定義 multi-agent
+需要遵守的語言與 ownership boundary。這一步很重要，因為目前 runtime
+裡的 `factCheck`、`styleReview`、`rewriteDraft` 仍然是同一個 runtime
+中的 operations，並不是三個彼此隔離的 agents。
+
+目前先固定兩個角色：
+
+- FactCheck Agent：擁有 claim verification 與 evidence output。
+- Writer Agent：根據 draft、accepted evidence 與 style guidance 產生 revision。
+
+Coordinator 負責 routing 與 lifecycle；每個 agent 則擁有自己的 private
+session 與 runtime state。換句話說，一個 agent 對應一個 runtime
+ownership。Coordinator 可以建立、持有與 dispose sessions，但不能把
+FactCheck Agent 的 signals、promises、subscriptions 或 runtime object
+直接交給 Writer Agent。
+
+Agent 之間未來只透過 versioned、JSON-serializable message envelope
+溝通。`AgentMessageEnvelope` 會保存 sender、recipient、message ID、
+correlation ID、causation ID 與 input version。公開 parser
+`parseAgentMessageEnvelope` 會在資料進入 coordination behavior 前拒絕
+unknown recipient、malformed payload、identity role mismatch 與 stale
+input version，避免錯誤訊息靜默改寫 agent state。
+
+目前公開的 framework-neutral contracts 包含：
+
+- `AgentIdentity`
+- `AgentMessageEnvelope`
+- `AgentResult`
+- `parseAgentMessageEnvelope`
+- `AgentSessionBoundary`
+- `createAgentCoordinatorBoundary`
+
+`createAgentCoordinatorBoundary` 只負責建立並持有 FactCheck 與 Writer
+sessions，確保兩個 coordinator instances 不會共享 session state，且
+dispose 只影響自己擁有的 sessions。它還沒有實作 message routing 或
+reactive invalidation；真正的 two-agent vertical slice 會留到 Task 50。
+
+這個階段的 explicit non-goals 也已固定：不處理 autonomous planning、
+dynamic team formation、tool selection、shared mutable runtime state、
+LangGraph-specific coordinator、React/Vue integration，也不宣稱 real LLM
+quality improvement。LangGraph、HTTP、UI、database 與 provider 都留在
+contract boundary 外面。
+
+完整角色、ownership、public API 與 non-goals 記錄在
+`docs/multi-agent-contracts.md`。
+
+## Task 50：Two-Agent Reactive Vertical Slice
+
+Task 50 把 Task 49 的 contract boundary 接成第一條可執行的 two-agent
+reference flow。這不是把原本 runtime 裡的每個 operation 改名成 agent，
+而是建立兩個由 coordinator 個別持有的 session：
+
+- FactCheck Agent 接收 claims，產生 fact-check evidence。
+- Writer Agent 只接收 draft、style guidance 與已接受的 evidence，產生
+  revised draft 和 final result。
+
+公開入口 `createTwoAgentCorrectionCoordinator()` 維持 framework-neutral，
+提供 `receive()`、`runUntilSettled()`、`emit()`、`trace()` 與 `dispose()`。
+預設使用 deterministic mock model，不需要 Ollama、API key、database、
+LangGraph 或 UI；測試也可以透過可選的 `model` contract 注入可控制的
+async provider。
+
+目前固定流程如下：
+
+```txt
+draft
+  -> claims
+  -> FactCheck Agent
+  -> versioned JSON evidence envelope
+  -> Writer Agent
+  -> revised draft / final result
+```
+
+這個 vertical slice 驗證三種 invalidation 行為：
+
+1. Initial receive 會執行 FactCheck 與 Writer，並輸出 versioned evidence。
+2. Style-only update 不改變 claims，因此 reuse settled fact-check evidence，
+   只重新執行 Writer。
+3. Claim-changing update 會把舊 evidence 記為 `stale`，重新執行 FactCheck，
+   再把新 evidence route 給 Writer。
+
+每次 `receive()` 都會增加 input version。Agent 的 async work 開始時會
+捕捉當下版本，await 完成後必須再次確認自己仍是 current version，才可以
+寫入 evidence 或 final output。若舊 FactCheck 或 Writer 在較新的 receive
+之後才完成，只會留下 `superseded async result` trace，不得覆蓋新結果，
+也不得 emit 舊版本。
+
+Session isolation 也在這一階段落地。每個 coordinator instance 各自擁有
+agent sessions、evidence cache、input version、output 與 trace collector，
+沒有 module-level mutable state。因此一個 coordinator 的 claim change、
+late result 或 dispose 都不會改動另一個 coordinator。
+
+需要守住的限制是：目前只證明固定的 FactCheck-to-Writer reference flow。
+它不包含 autonomous planning、dynamic team formation、tool selection、
+arbitrary agent graph、distributed delivery、retry、exactly-once execution，
+也還沒有 snapshot persistence 或 process recovery。可序列化並跨 boundary
+傳遞的是 envelope 與 output；sessions、model functions、promises 和其他
+live runtime handles 仍然只能存在 process-local。Snapshot 與 restore
+會留到 Task 51 在 owned agent-runtime boundary 上驗證。
+
+## Task 51：Multi-Agent Snapshot And Recovery
+
+Task 51 把 Task 50 的 live two-agent coordinator 延伸成可經過 JSON
+保存與恢復的 continuity boundary。這次不是只在 aggregate object 上手寫
+clone，而是讓 FactCheck Agent 與 Writer Agent 各自建立真正的
+`@signal-kernel/snapshot` scope；coordinator 再負責包裝 causal input
+version、accepted evidence、settled output、trace 與兩個 agent identities。
+
+公開 API 增加：
+
+- `coordinator.snapshot()`
+- `parseTwoAgentCorrectionCoordinatorSnapshot()`
+- `restoreTwoAgentCorrectionCoordinator()`
+- `TwoAgentCorrectionCoordinatorSnapshot`
+
+Snapshot 使用 `schemaVersion: 1`。每個 agent runtime document 都有固定的
+graph id/version 與 coordinator-specific instance id，並只登錄一個
+JSON-compatible `settledState` signal。Promises、AbortController、model
+functions、subscriptions、sessions 與其他 live handles 不會被序列化。
+
+Restore 不是把原本的 coordinator 原地倒帶，而是建立新的 process-local
+coordinator 與兩個 agent sessions，再還原 agent scopes 和 aggregate
+causal state。因為舊 runtime 的 promises 或 callbacks 不會跨過 snapshot
+boundary，所以 pre-restore async work 即使晚完成，也不能改寫 restored
+output 或 trace。從同一份 snapshot restore 兩次，也會得到彼此隔離的
+instances。
+
+恢復後的第一個 receive 會接續原本 input version。Style-only update 仍會
+reuse settled FactCheck evidence；claim-changing update 仍會把舊 evidence
+標記為 stale 並重新執行 FactCheck。Trace baseline 會被保留，新事件則接續
+既有 `trace-N`，避免 ID 重複。
+
+Restore boundary 現在接受 `unknown`，先由 parser 檢查 aggregate schema、
+JSON compatibility、必要欄位、evidence causality、output/trace shape、
+agent identity，以及官方 `SnapshotDocument` graph identity。Malformed、
+schema mismatch、缺少 agent snapshot 或 identity mismatch 都會在建立 live
+runtime 前得到穩定診斷，不再洩漏底層 TypeError。
+
+LangGraph checkpoint state 可以保存這份 JSON-compatible snapshot，但只能
+保存 data，不能保存 live coordinator。LangGraph 與 host 仍然負責 thread、
+checkpoint timing、storage、retention、interrupt 與 replay policy；這個
+專案沒有提供 production checkpointer 或 database adapter。
+
+目前需要誠實保留一項限制：Only settled coordinator snapshots are
+currently supported. 尚未 settled 的 pending workflow 不能直接 snapshot，
+也沒有 interrupted-work replay、自動 retry、distributed locking、
+deduplication 或 exactly-once execution。Snapshot 是 continuity，不是 live
+state sharing，也不會把非確定性的 LLM call 變成 deterministic behavior。
+
+完整 public API、LangGraph checkpoint boundary 與 durability limits 記錄在
+`docs/multi-agent-snapshot-recovery.md`。

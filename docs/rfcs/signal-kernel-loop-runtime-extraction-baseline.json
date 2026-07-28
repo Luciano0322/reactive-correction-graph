@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "purpose": "before-extraction-regression-baseline",
+  "provider": "deterministic-mock",
+  "sourceScenario": "src/examples/reference-scenario.json",
+  "comparisonBaseline": {
+    "eager": {
+      "factCheckCalls": 1,
+      "styleReviewCalls": 1,
+      "rewriteDraftCalls": 1,
+      "finalResultProduced": true
+    },
+    "reactive": {
+      "factCheckCalls": 1,
+      "styleReviewCalls": 1,
+      "rewriteDraftCalls": 1,
+      "finalResultProduced": true
+    }
+  },
+  "comparison": {
+    "provider": "deterministic-mock",
+    "scenarios": [
+      {
+        "scenario": "style-only",
+        "eager": {
+          "factCheckCalls": 2,
+          "styleReviewCalls": 2,
+          "rewriteDraftCalls": 2,
+          "finalResultProduced": true
+        },
+        "reactive": {
+          "factCheckCalls": 1,
+          "styleReviewCalls": 2,
+          "rewriteDraftCalls": 2,
+          "finalResultProduced": true
+        },
+        "finalResultsMatch": true
+      },
+      {
+        "scenario": "claim-changing",
+        "eager": {
+          "factCheckCalls": 3,
+          "styleReviewCalls": 3,
+          "rewriteDraftCalls": 3,
+          "finalResultProduced": true
+        },
+        "reactive": {
+          "factCheckCalls": 2,
+          "styleReviewCalls": 3,
+          "rewriteDraftCalls": 3,
+          "finalResultProduced": true
+        },
+        "finalResultsMatch": true
+      }
+    ]
+  },
+  "savings": {
+    "schemaVersion": 1,
+    "provider": "deterministic-mock",
+    "scenarios": [
+      {
+        "scenario": "style-only",
+        "comparisonStatus": "comparable",
+        "incomparableReason": null,
+        "operations": [
+          {
+            "operation": "factCheck",
+            "eagerCalls": 1,
+            "reactiveCalls": 0,
+            "avoidedCalls": 1,
+            "reusedReceives": 1,
+            "supersededCalls": 0
+          },
+          {
+            "operation": "styleReview",
+            "eagerCalls": 1,
+            "reactiveCalls": 1,
+            "avoidedCalls": 0,
+            "reusedReceives": 0,
+            "supersededCalls": 0
+          },
+          {
+            "operation": "rewriteDraft",
+            "eagerCalls": 1,
+            "reactiveCalls": 1,
+            "avoidedCalls": 0,
+            "reusedReceives": 0,
+            "supersededCalls": 0
+          }
+        ]
+      },
+      {
+        "scenario": "claim-changing",
+        "comparisonStatus": "comparable",
+        "incomparableReason": null,
+        "operations": [
+          {
+            "operation": "factCheck",
+            "eagerCalls": 1,
+            "reactiveCalls": 1,
+            "avoidedCalls": 0,
+            "reusedReceives": 0,
+            "supersededCalls": 0
+          },
+          {
+            "operation": "styleReview",
+            "eagerCalls": 1,
+            "reactiveCalls": 1,
+            "avoidedCalls": 0,
+            "reusedReceives": 0,
+            "supersededCalls": 0
+          },
+          {
+            "operation": "rewriteDraft",
+            "eagerCalls": 1,
+            "reactiveCalls": 1,
+            "avoidedCalls": 0,
+            "reusedReceives": 0,
+            "supersededCalls": 0
+          }
+        ]
+      }
+    ]
+  }
+}

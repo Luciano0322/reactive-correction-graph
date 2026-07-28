@@ -6,6 +6,8 @@ correction runtime inside a LangGraph workflow.
 See [TDD Workflow](./docs/tdd-workflow.md) for the red-green-refactor process used to add runtime behavior.
 See [Headless Session SDK](./docs/headless-session-sdk.md) for how CLI, web, and LangGraph integrations depend on the shared session boundary.
 See [Durable LangGraph Session Boundary](./docs/durable-langgraph-session.md) for the checkpoint and restore boundary around graph sessions.
+See [Multi-Agent Contract Boundary](./docs/multi-agent-contracts.md) for the two-agent roles, ownership model, message contracts, and explicit non-goals.
+See [Multi-Agent Snapshot Recovery](./docs/multi-agent-snapshot-recovery.md) for the versioned coordinator snapshot, restore API, LangGraph checkpoint boundary, and durability limits.
 See [Chinese Technical Article Draft](./docs/reactive-correction-graph-zh.md) for a Chinese explanation of the architecture and positioning.
 See [Local LLM Provider](./docs/local-llm-provider.md) for the optional Ollama demo path.
 
@@ -52,6 +54,48 @@ Non-goals:
 - This does not claim the current repo should be published as the final npm
   package; a future package can be extracted after the reference demo proves
   the boundary is useful.
+
+## Multi-Agent Reference Boundary
+
+Task 49 defines the contracts for a FactCheck Agent and Writer Agent with
+private session boundaries. Task 50 adds a deterministic framework-neutral
+coordinator that routes versioned JSON-compatible evidence envelopes instead
+of live runtime objects.
+
+The initial receive runs both agents. A style-only receive reuses settled
+fact-check evidence and reruns Writer; a claim-changing receive invalidates old
+evidence and reruns both agents. Input-version guards reject late async results,
+and separate coordinator instances keep sessions, evidence, output, and traces
+isolated.
+
+This is a fixed reference flow, not autonomous planning, dynamic teams, tool
+selection, shared mutable runtime state, process recovery, or a
+LangGraph-specific coordinator.
+
+See [Multi-Agent Contract Boundary](./docs/multi-agent-contracts.md) for the
+roles, public APIs, ownership rules, and explicit non-goals.
+
+## Multi-Agent Snapshot Recovery
+
+Task 51 adds `snapshot()` and
+`restoreTwoAgentCorrectionCoordinator()` to the deterministic two-agent
+reference boundary. Each owned agent uses `@signal-kernel/snapshot`, while the
+coordinator snapshot records causal input, accepted evidence, settled output,
+trace, and agent identity as JSON-compatible data.
+
+`parseTwoAgentCorrectionCoordinatorSnapshot()` validates untrusted checkpoint
+data before live sessions are created. Restoring creates a new isolated
+coordinator; it does not share runtime objects or pending work with the source
+instance.
+
+The snapshot may be stored in LangGraph checkpoint state, but LangGraph and the
+host still own checkpoint policy and persistence. This project currently
+supports settled coordinator snapshots only and does not provide interrupted
+workflow replay, a database adapter, distributed delivery, or exactly-once
+execution.
+
+See [Multi-Agent Snapshot Recovery](./docs/multi-agent-snapshot-recovery.md) for
+the public API, restore semantics, checkpoint boundary, and durability limits.
 
 ## LangGraph Reference Integration
 

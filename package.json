@@ -33,7 +33,8 @@
     "@langchain/core": "^1.2.1",
     "@langchain/langgraph": "^1.4.5",
     "@signal-kernel/async-runtime": "0.3.0",
-    "@signal-kernel/core": "0.1.3"
+    "@signal-kernel/core": "0.1.3",
+    "@signal-kernel/snapshot": "0.1.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

@@ -32,6 +32,14 @@ export function createTraceCollector(): TraceCollector {
   let nextSequence = 1;
 
   function record(event: TraceInput): TraceEvent {
+    if (event.id) {
+      const match = /^trace-(\d+)$/.exec(event.id);
+      const restoredId = match?.[1];
+      if (restoredId) {
+        nextId = Math.max(nextId, Number(restoredId) + 1);
+      }
+    }
+
     const fullEvent: TraceEvent = {
       id: event.id ?? `trace-${nextId++}`,
       at: event.at ?? Date.now(),

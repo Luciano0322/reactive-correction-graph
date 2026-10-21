@@ -18,6 +18,37 @@ type OllamaGenerateResponse = {
   response?: unknown;
 };
 
+const factCheckSchema = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          claimId: { type: "string" },
+          verdict: { type: "string", enum: ["supported", "needs-review"] },
+          note: { type: "string" },
+        },
+        required: ["claimId", "verdict", "note"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+const styleReviewSchema = {
+  type: "object",
+  properties: {
+    tone: { type: "string", enum: ["clear", "needs-polish"] },
+    suggestions: { type: "array", items: { type: "string" } },
+  },
+  required: ["tone", "suggestions"],
+  additionalProperties: false,
+};
+
 export function createOllamaCorrectionModel(
   options: OllamaCorrectionModelOptions,
 ): CorrectionRuntimeModel {
@@ -30,35 +61,40 @@ export function createOllamaCorrectionModel(
 
   return {
     async factCheckClaims(claims, signal) {
-      const response = await generateJson<FactCheckResult>({
+      const response = await generateJson({
         baseUrl,
         fetchFn,
         model: options.model,
         task: "factCheckClaims",
         prompt: factCheckPrompt(claims),
+        format: factCheckSchema,
         signal,
       });
 
-      return {
-        items: Array.isArray(response.items) ? response.items : [],
-      };
+      if (!isFactCheckResult(response)) {
+        throw new Error(
+          `Ollama factCheckClaims returned an invalid response for model ${options.model}: expected the fact-check schema`,
+        );
+      }
+      return response;
     },
     async reviewStyle(input, signal) {
-      const response = await generateJson<StyleReviewResult>({
+      const response = await generateJson({
         baseUrl,
         fetchFn,
         model: options.model,
         task: "reviewStyle",
         prompt: styleReviewPrompt(input),
+        format: styleReviewSchema,
         signal,
       });
 
-      return {
-        tone: response.tone === "needs-polish" ? "needs-polish" : "clear",
-        suggestions: Array.isArray(response.suggestions)
-          ? response.suggestions
-          : [],
-      };
+      if (!isStyleReviewResult(response)) {
+        throw new Error(
+          `Ollama reviewStyle returned an invalid response for model ${options.model}: expected the style-review schema`,
+        );
+      }
+      return response;
     },
     async rewriteDraft(input, signal) {
       return generateText({
@@ -73,17 +109,18 @@ export function createOllamaCorrectionModel(
   };
 }
 
-async function generateJson<T>(input: {
+async function generateJson(input: {
   baseUrl: string;
   fetchFn: FetchLike;
   model: string;
   task: string;
   prompt: string;
   signal?: AbortSignal;
-}): Promise<T> {
+  format: Record<string, unknown>;
+}): Promise<unknown> {
   const text = await generateText({
     ...input,
-    format: "json",
+    format: input.format,
   });
 
   const trimmed = text.trim();
@@ -94,7 +131,7 @@ async function generateJson<T>(input: {
   }
 
   try {
-    return JSON.parse(trimmed) as T;
+    return JSON.parse(trimmed) as unknown;
   } catch (error) {
     throw new Error(
       `Ollama ${input.task} returned invalid JSON for model ${input.model}: ${previewText(trimmed)}`,
@@ -110,7 +147,7 @@ async function generateText(input: {
   task: string;
   prompt: string;
   signal?: AbortSignal;
-  format?: "json";
+  format?: Record<string, unknown>;
 }) {
   const response = await input.fetchFn(`${input.baseUrl}/api/generate`, {
     method: "POST",
@@ -143,6 +180,30 @@ async function generateText(input: {
 
 function previewText(text: string) {
   return text.length <= 160 ? text : `${text.slice(0, 157)}...`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStyleReviewResult(value: unknown): value is StyleReviewResult {
+  return isRecord(value)
+    && Object.keys(value).every((key) => key === "tone" || key === "suggestions")
+    && (value.tone === "clear" || value.tone === "needs-polish")
+    && Array.isArray(value.suggestions)
+    && value.suggestions.every((suggestion) => typeof suggestion === "string");
+}
+
+function isFactCheckResult(value: unknown): value is FactCheckResult {
+  return isRecord(value)
+    && Object.keys(value).every((key) => key === "items")
+    && Array.isArray(value.items)
+    && value.items.every((item: unknown) =>
+      isRecord(item)
+      && Object.keys(item).every((key) => ["claimId", "verdict", "note"].includes(key))
+      && typeof item.claimId === "string"
+      && (item.verdict === "supported" || item.verdict === "needs-review")
+      && typeof item.note === "string");
 }
 
 function factCheckPrompt(claims: Claim[]) {

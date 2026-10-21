@@ -3,6 +3,41 @@
 Reproducible CLI demo for validating a signal-kernel powered reactive
 correction runtime inside a LangGraph workflow.
 
+## Settle migration validation
+
+The `feat/settle-migration` development branch consumes Settle's package public
+exports for resource invalidation, causal candidate commit, and revision-scoped
+settlement. The runtime remains the host: it starts fact-check/style/rewrite work,
+constructs correction plans, normalizes coverage, chooses domain output, and owns
+its timeout and latest-input-following policy. `settlePollMs` remains accepted
+for source compatibility but is deprecated and ignored; settlement awaits Settle
+directly instead of polling. Settlement is not evidence of correction quality.
+
+This is a paired-repository, unreleased integration, not a standalone release.
+`package.json` deliberately uses `link:../settle`. Keep the repositories adjacent:
+
+```sh
+cd ../settle
+pnpm install --frozen-lockfile
+pnpm build
+cd ../reactive-correction-graph
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm test:browser
+```
+
+CI checks out and builds the pinned Settle development baseline before installing
+this project. Before making the migration independently installable, publish a
+Settle version containing the required contract, replace the local link with that
+version, and remove the paired-checkout CI setup. No release is performed here.
+
+The before-extraction JSON baseline remains unchanged. The existing comparison,
+savings, stale-result, session-isolation, and snapshot-recovery suites continue to
+run; a new runtime test verifies execution/revision provenance projected from
+Settle into the existing trace surface.
+
 See [TDD Workflow](./docs/tdd-workflow.md) for the red-green-refactor process used to add runtime behavior.
 See [Headless Session SDK](./docs/headless-session-sdk.md) for how CLI, web, and LangGraph integrations depend on the shared session boundary.
 See [Durable LangGraph Session Boundary](./docs/durable-langgraph-session.md) for the checkpoint and restore boundary around graph sessions.

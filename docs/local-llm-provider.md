@@ -36,6 +36,33 @@ http://localhost:11434
 
 The runtime uses Ollama's `/api/generate` endpoint with `stream: false`.
 
+### Structured Response Contracts
+
+`factCheckClaims` and `reviewStyle` pass explicit JSON Schemas in Ollama's
+`format` field rather than requesting generic `"json"` generation. This follows
+Ollama's [structured-output API](https://docs.ollama.com/capabilities/structured-outputs).
+It addresses the locally reproduced style-review generation that repeated
+whitespace without completing its JSON response; it is not a guarantee that
+every model will finish within the runtime budget.
+
+The provider also validates the parsed response before returning it:
+
+- Fact-check responses must contain an `items` array. Each item must have a
+  string `claimId`, a `supported` or `needs-review` verdict, and a string `note`.
+- Style-review responses must contain a `clear` or `needs-polish` tone and a
+  `suggestions` array containing only strings.
+- Missing fields, incorrect types, unknown enum values, and additional fields
+  reject with an error identifying the task and model. They are not silently
+  converted into empty results or a `clear` tone.
+
+A valid empty `items` array is still allowed. Missing claim coverage and unknown
+claim IDs remain the runtime's responsibility, using the existing coverage
+normalization. `rewriteDraft` remains plain markdown without a JSON Schema.
+
+These contracts validate data structure only. They do not establish that a
+verdict is factually correct or a style suggestion is useful. No timeout,
+retry policy, or Settle core behavior is changed by this provider contract.
+
 ## Manual Demo
 
 Run:
@@ -253,16 +280,65 @@ This differs from provider coverage problems:
 ## Manual Smoke Test
 
 The LangGraph + Ollama smoke test is skipped unless `OLLAMA_MODEL` is set.
+Run it from the `reactive-correction-graph` repository root.
 
-```bash
+PowerShell:
+
+```powershell
 $env:OLLAMA_MODEL = "qwen3:4b"
-pnpm test
+pnpm exec vitest run src/llm/ollamaCorrectionModel.manual.test.ts --reporter=verbose
 ```
 
-On non-Windows shells:
+Git Bash or other POSIX-style shells:
 
 ```bash
-OLLAMA_MODEL=qwen3:4b pnpm test
+OLLAMA_MODEL=qwen3:4b pnpm exec vitest run src/llm/ollamaCorrectionModel.manual.test.ts --reporter=verbose
 ```
 
-Keep CI and normal local verification on the mock provider unless you explicitly want to test Ollama.
+The default runtime budget is 120 seconds. The outer Vitest timeout is 150
+seconds, leaving time for the runtime error and diagnostic snapshot to be
+reported first. To override this smoke test's runtime budget:
+
+```bash
+OLLAMA_MODEL=qwen3:4b OLLAMA_SMOKE_TIMEOUT_MS=180000 pnpm exec vitest run src/llm/ollamaCorrectionModel.manual.test.ts --reporter=verbose
+```
+
+In PowerShell, set `$env:OLLAMA_SMOKE_TIMEOUT_MS = "180000"` before running
+the same Vitest command. The outer timeout remains 30 seconds longer than the
+configured runtime budget. The value must be a positive integer in milliseconds
+that leaves room for that extra 30 seconds within Node's timer range.
+`CORRECTION_SETTLE_TIMEOUT_MS` configures the demo CLI, not this test.
+
+Lines prefixed with `[ollama-smoke]` report:
+
+- `run-started`: the runtime and outer test budgets.
+- `stage-started`, `stage-completed`, and `stage-failed`: resource lifecycle
+  progress for `factCheck`, `styleReview`, and `rewriteDraft`.
+- `elapsedMs`: elapsed time since the run started; `stageElapsedMs`: elapsed
+  time since that resource started, including provider and runtime work.
+- `run-failed`: the current resource `statuses`, active `pendingStages` with
+  their durations, and required `notStartedStages`.
+- `run-completed`: all existing smoke-test assertions passed.
+
+For example, if style review is still running after fact-checking finishes,
+`pendingStages` identifies `styleReview`, while `notStartedStages` identifies
+`rewriteDraft`. A resource status of `pending` alone does not mean execution
+has started. These diagnostics omit candidate payloads and rethrow the original
+failure; they do not automatically retry or make model execution faster.
+A successful smoke test verifies integration completion, not correction quality.
+
+The diagnostic regression tests use a local HTTP fixture and real graph/runtime
+execution. They do not require a running Ollama server. Run them with:
+
+```bash
+pnpm exec vitest run src/testing/ollamaManualSmokeDiagnostics.test.ts --reporter=verbose
+```
+
+Keep CI and normal local verification on the mock provider unless you explicitly
+want to test Ollama. PowerShell environment variables persist for the shell
+session; after manual testing, clear them before normal verification:
+
+```powershell
+Remove-Item Env:OLLAMA_MODEL -ErrorAction SilentlyContinue
+Remove-Item Env:OLLAMA_SMOKE_TIMEOUT_MS -ErrorAction SilentlyContinue
+```

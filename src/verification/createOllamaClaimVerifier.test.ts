@@ -55,7 +55,10 @@ describe("createOllamaClaimVerifier", () => {
         body: expect.objectContaining({
           model: "facts-model-a",
           stream: false,
-          format: "json",
+          format: expect.objectContaining({
+            type: "object",
+            required: ["items"],
+          }),
           prompt: expect.stringContaining(
             "Signal-kernel tracks reactive dependencies.",
           ),

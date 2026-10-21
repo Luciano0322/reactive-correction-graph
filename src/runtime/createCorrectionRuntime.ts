@@ -1,5 +1,4 @@
-import { batch, computed, createEffect, signal } from "@signal-kernel/core";
-import { createResource } from "@signal-kernel/async-runtime";
+import { createSettler, SettlementExecutionError, type ExecutionIdentity, type SettlementRevision } from "@signal-kernel/settle";
 import { createMockCorrectionModel } from "../llm/mockCorrectionModel.js";
 import type {
   Claim,
@@ -38,17 +37,6 @@ type RewriteInput =
       reason: string;
     };
 
-type RevisedDraftResult = {
-  epoch: number;
-  planKey: string;
-  text: string;
-};
-
-type KeyedResourceResult<T> = {
-  inputKey: string;
-  value: T;
-};
-
 export type CorrectionRuntime = SignalNode<
   CorrectionRuntimeInput,
   CorrectionRuntimeOutput,
@@ -74,12 +62,8 @@ export type CorrectionRuntimeOptions = {
   traceCollector?: TraceCollector;
   model?: Partial<CorrectionRuntimeModel>;
   settleTimeoutMs?: number;
+  /** @deprecated Settlement awaits Settle directly; polling is no longer used. */
   settlePollMs?: number;
-};
-
-type FailedResource = {
-  label: string;
-  error?: unknown;
 };
 
 const defaultRuntimeModel: CorrectionRuntimeModel = {
@@ -87,16 +71,14 @@ const defaultRuntimeModel: CorrectionRuntimeModel = {
 };
 
 const DEFAULT_SETTLE_TIMEOUT_MS = 2_000;
-const DEFAULT_SETTLE_POLL_MS = 10;
 const DEFAULT_CLAIM_BUDGET = 6;
 
 export function createCorrectionRuntime(
   optionsOrTraceCollector: TraceCollector | CorrectionRuntimeOptions = {},
 ): CorrectionRuntime {
-  const { traceCollector, model, settleTimeoutMs, settlePollMs } =
+  const { traceCollector, model, settleTimeoutMs } =
     normalizeRuntimeOptions(optionsOrTraceCollector);
   let graph: RuntimeGraph | undefined;
-  let expectedEmissionCount = 0;
   let previousState: CorrectionRuntimeInput | undefined;
   let receiveEpoch = 0;
 
@@ -114,7 +96,6 @@ export function createCorrectionRuntime(
         graph.receive(state);
       }
 
-      expectedEmissionCount = graph.emittedFinalResultCount() + 1;
       previousState = state;
       traceCollector.completed("runtime", "receive", receiveMetadata);
     },
@@ -125,48 +106,20 @@ export function createCorrectionRuntime(
 
       traceCollector.started("runtime", "runUntilSettled");
 
-      const startedAt = Date.now();
-      const deadline = startedAt + settleTimeoutMs;
       let attempts = 0;
-
-      while (true) {
-        attempts += 1;
-        graph.forceReadFinalResult();
-
-        const failedResource = graph.failedResource();
-        if (failedResource) {
-          const error = formatError(failedResource.error);
-          traceCollector.rejected("runtime", "runUntilSettled", {
-            resource: failedResource.label,
-            error,
-          });
-          throw new Error(`${failedResource.label} failed: ${error}`);
-        }
-
-        if (
-          graph.emittedFinalResultCount() >= expectedEmissionCount &&
-          graph.allResourcesSettled()
-        ) {
-          traceCollector.completed("runtime", "runUntilSettled", {
-            attempts,
-          });
-          return;
-        }
-
-        const remainingMs = deadline - Date.now();
-        if (remainingMs <= 0) {
-          break;
-        }
-
-        await sleep(Math.min(settlePollMs, remainingMs));
+      const activeGraph = graph;
+      try {
+        await withHostTimeout((async () => {
+          // Following a newer revision is this legacy host facade's policy, not Settle's.
+          do { attempts += 1; } while (await activeGraph.settle() === "superseded");
+        })(), settleTimeoutMs);
+        traceCollector.completed("runtime", "runUntilSettled", { attempts });
+      } catch (error) {
+        traceCollector.rejected("runtime", "runUntilSettled", {
+          ...activeGraph.resourceStatuses(), attempts, timeoutMs: settleTimeoutMs, error: formatError(error),
+        });
+        throw error;
       }
-
-      traceCollector.rejected("runtime", "runUntilSettled", {
-        ...graph.resourceStatuses(),
-        attempts,
-        timeoutMs: settleTimeoutMs,
-      });
-      throw new Error("Correction runtime did not settle before timeout");
     },
     emit() {
       return graph?.emit() ?? {};
@@ -191,10 +144,7 @@ export function createCorrectionRuntime(
 
 type RuntimeGraph = {
   receive(state: CorrectionRuntimeInput): void;
-  forceReadFinalResult(): void;
-  emittedFinalResultCount(): number;
-  allResourcesSettled(): boolean;
-  failedResource(): FailedResource | undefined;
+  settle(): Promise<"settled" | "superseded">;
   resourceStatuses(): Record<string, unknown>;
   emit(): Partial<CorrectionRuntimeOutput>;
   snapshot(): CorrectionRuntimeSnapshot;
@@ -205,289 +155,158 @@ function createRuntimeGraph(
   traceCollector: TraceCollector,
   model: CorrectionRuntimeModel,
 ): RuntimeGraph {
-  const draftSignal = signal(initialState.draft);
-  const userIntentSignal = signal<string | undefined>(initialState.userIntent);
-  const styleGuideSignal = signal<string | undefined>(initialState.styleGuide);
-  const receiveEpochSignal = signal(1);
-  let failedResource: FailedResource | undefined;
-
-  const claimsComputed = computed(() => {
-    traceCollector.started("computed", "claims");
-    const candidates = extractClaimCandidates(draftSignal.get());
-    const claims = applyClaimBudget(candidates);
-
-    if (candidates.length > claims.length) {
-      traceCollector.skipped("computed", "claimBudget", {
-        budget: DEFAULT_CLAIM_BUDGET,
-        candidateCount: candidates.length,
-        extractedCount: claims.length,
-        omittedCount: candidates.length - claims.length,
-        factCheckScope: "extractedClaims",
-      });
-    }
-
-    traceCollector.completed("computed", "claims", {
-      count: claims.length,
-    });
-    return claims;
-  }, areClaimsEqual);
-
-  const claimsSignal = signal<Claim[]>(claimsComputed.get(), areClaimsEqual);
-
-  createEffect(() => {
-    claimsSignal.set(claimsComputed.get());
-  });
-
-  const [factCheckResult, factCheckMeta] = createResource<
-    Claim[],
-    KeyedResourceResult<FactCheckResult>
-  >({
-    input: () => claimsSignal.get(),
-    keepPreviousValueOnPending: true,
-    onEvent(event) {
-      recordGraphResourceEvent("factCheck", event);
-    },
-    run: async (claims, ctx) => {
-      const inputKey = factCheckInputKey(claims);
-
-      if (claims.length === 0) {
-        traceCollector.skipped("resource", "factCheck", {
-          reason: "no claims",
-        });
-        return { inputKey, value: { items: [] } };
-      }
-
-      const result = await model.factCheckClaims(claims, ctx.signal);
-      return {
-        inputKey,
-        value: normalizeFactCheckCoverage(claims, result, traceCollector),
-      };
-    },
-  });
-
-  const [styleReviewResult, styleReviewMeta] = createResource<
-    { draft: string; styleGuide?: string },
-    KeyedResourceResult<StyleReviewResult>
-  >({
-    input: () => ({
-      draft: draftSignal.get(),
-      styleGuide: styleGuideSignal.get(),
-    }),
-    keepPreviousValueOnPending: true,
-    onEvent(event) {
-      recordGraphResourceEvent("styleReview", event);
-    },
-    run: async (input, ctx) => ({
-      inputKey: styleReviewInputKey(input),
-      value: await model.reviewStyle(input, ctx.signal),
-    }),
-  });
-
-  const correctionPlanComputed = computed<CorrectionPlan | undefined>(() => {
-    traceCollector.started("computed", "correctionPlan");
-    const factCheckResource = factCheckResult();
-    const styleReviewResource = styleReviewResult();
-    const factCheck = factCheckResource?.value;
-    const styleReview = styleReviewResource?.value;
-    const upstreamResourcesSettled =
-      factCheckMeta.status() === "success" &&
-      styleReviewMeta.status() === "success";
-    const upstreamResultsCurrent =
-      factCheckResource?.inputKey === factCheckInputKey(claimsSignal.get()) &&
-      styleReviewResource?.inputKey ===
-        styleReviewInputKey({
-          draft: draftSignal.get(),
-          styleGuide: styleGuideSignal.get(),
-        });
-
-    if (
-      !factCheck ||
-      !styleReview ||
-      !upstreamResourcesSettled ||
-      !upstreamResultsCurrent
-    ) {
-      traceCollector.skipped("computed", "correctionPlan", {
-        reason: "waiting for current async resources",
-      });
-      return undefined;
-    }
-
-    const plan = buildCorrectionPlan({
-      factCheck,
-      styleReview,
-      userIntent: userIntentSignal.get(),
-    });
-
-    traceCollector.completed("computed", "correctionPlan", {
-      actionCount: plan.actions.length,
-    });
-    return plan;
-  });
-
-  const [revisedDraft, rewriteMeta] = createResource<
-    RewriteInput,
-    RevisedDraftResult | undefined,
-    unknown
-  >({
-    input: () => {
-      const plan = correctionPlanComputed.get();
-      if (!plan) {
-        return {
-          status: "waiting",
-          reason: "correction plan is not ready",
-        };
-      }
-
-      return {
-        status: "ready",
-        epoch: receiveEpochSignal.get(),
-        draft: draftSignal.get(),
-        plan,
-        planKey: correctionPlanKey(plan),
-      };
-    },
-    keepPreviousValueOnPending: true,
-    onEvent(event) {
-      recordGraphResourceEvent("rewriteDraft", event);
-    },
-    run: async (input, ctx) => {
-      if (input.status === "waiting") {
-        traceCollector.skipped("resource", "rewriteDraft", {
-          reason: input.reason,
-        });
-        return undefined;
-      }
-
-      const text = await model.rewriteDraft(input, ctx.signal);
-      return {
-        epoch: input.epoch,
-        planKey: input.planKey,
-        text,
-      };
-    },
-  });
-
-  const finalResultComputed = computed<FinalResult | undefined>(() => {
-    traceCollector.started("computed", "finalResult");
-    const plan = correctionPlanComputed.get();
-    const draft = revisedDraft();
-    const currentEpoch = receiveEpochSignal.get();
-    const factCheck = factCheckResult()?.value;
-    const resourcesSettled =
-      factCheckMeta.status() === "success" &&
-      styleReviewMeta.status() === "success" &&
-      rewriteMeta.status() === "success";
-
-    if (
-      !plan ||
-      !draft ||
-      draft.epoch !== currentEpoch ||
-      draft.planKey !== correctionPlanKey(plan) ||
-      !factCheck ||
-      !resourcesSettled
-    ) {
-      traceCollector.skipped("computed", "finalResult", {
-        reason: "waiting for correction plan or revised draft",
-      });
-      return undefined;
-    }
-
-    const unresolvedIssues = factCheck.items
-      .filter((item) => item.verdict === "needs-review")
-      .map((item) => item.note);
-
-    const result: FinalResult = {
-      revisedDraft: draft.text,
-      summary: plan.actions,
-      unresolvedIssues,
-    };
-
-    traceCollector.completed("computed", "finalResult", {
-      unresolvedCount: unresolvedIssues.length,
-    });
-    return result;
-  });
-
+  type HostInput = CorrectionRuntimeInput & { epoch: number };
+  const settler = createSettler<HostInput>();
+  let currentRevision: SettlementRevision;
+  let currentInput: HostInput;
+  let currentWork: Promise<void>;
+  let epoch = 0;
   let emittedFinalResult: FinalResult | undefined;
-  let emittedFinalResultCount = 0;
+  let output: Partial<CorrectionRuntimeOutput> = {};
 
-  createEffect(() => {
-    const result = finalResultComputed.get();
-    if (!result || result === emittedFinalResult) return;
-
-    emittedFinalResult = result;
-    emittedFinalResultCount += 1;
-    traceCollector.emitted("effect", "finalResult", {
-      unresolvedCount: result.unresolvedIssues.length,
-    });
+  const factCheck = settler.resource({
+    id: "factCheck",
+    input(state) {
+      traceCollector.started("computed", "claims");
+      const candidates = extractClaimCandidates(state.draft);
+      const claims = applyClaimBudget(candidates);
+      if (candidates.length > claims.length) {
+        traceCollector.skipped("computed", "claimBudget", {
+          budget: DEFAULT_CLAIM_BUDGET,
+          candidateCount: candidates.length,
+          extractedCount: claims.length,
+          omittedCount: candidates.length - claims.length,
+          factCheckScope: "extractedClaims",
+        });
+      }
+      traceCollector.completed("computed", "claims", { count: claims.length });
+      return claims;
+    },
+    equals: areClaimsEqual,
+    run: async (claims, ctx) => {
+      if (claims.length === 0) {
+        traceCollector.skipped("resource", "factCheck", { reason: "no claims" });
+        return { items: [] };
+      }
+      const result = await model.factCheckClaims(claims, ctx.signal);
+      return normalizeFactCheckCoverage(claims, result, traceCollector);
+    },
+  });
+  const styleReview = settler.resource({
+    id: "styleReview",
+    input: (state) => ({ draft: state.draft, styleGuide: state.styleGuide }),
+    equals: (left, right) => styleReviewInputKey(left) === styleReviewInputKey(right),
+    run: (input, ctx) => model.reviewStyle(input, ctx.signal),
+  });
+  const rewriteDraft = settler.resource({
+    id: "rewriteDraft",
+    input(state): RewriteInput {
+      traceCollector.started("computed", "correctionPlan");
+      const facts = factCheck.emit();
+      const style = styleReview.emit();
+      if (!facts || !style) {
+        traceCollector.skipped("computed", "correctionPlan", { reason: "waiting for current async resources" });
+        return { status: "waiting", reason: "correction plan is not ready" };
+      }
+      const plan = buildCorrectionPlan({ factCheck: facts, styleReview: style, userIntent: state.userIntent });
+      traceCollector.completed("computed", "correctionPlan", { actionCount: plan.actions.length });
+      return {
+        status: "ready", epoch: state.epoch, draft: state.draft, plan, planKey: correctionPlanKey(plan),
+      };
+    },
+    equals: (left, right) => JSON.stringify(left) === JSON.stringify(right),
+    run: async (input, ctx) => {
+      if (input.status !== "ready") throw new Error("Host started rewrite before its dependencies were ready");
+      const text = await model.rewriteDraft(input, ctx.signal);
+      return { epoch: input.epoch, planKey: input.planKey, text };
+    },
+  });
+  const traceTokens = new Map<ExecutionIdentity, number>();
+  settler.subscribe((event) => {
+    if (event.subject !== "execution" || !event.execution || !event.resourceId) return;
+    let token = traceTokens.get(event.execution);
+    if (token === undefined) {
+      token = traceTokens.size + 1;
+      traceTokens.set(event.execution, token);
+    }
+    const metadata = { token, executionId: event.executionId, revisionId: event.revisionId };
+    if (event.type === "started") traceCollector.pending("resource", event.resourceId, metadata);
+    if (event.type === "committed") traceCollector.resolved("resource", event.resourceId, metadata);
+    if (event.type === "failed") traceCollector.rejected("resource", event.resourceId, { ...metadata, error: event.reason });
+    if (event.type === "cancelled") traceCollector.skipped("resource", event.resourceId, { ...metadata, reason: event.reason });
   });
 
+  // This is host orchestration, not a Settle scheduler or domain acceptance policy.
+  function receive(state: CorrectionRuntimeInput) {
+    currentInput = { ...state, epoch: ++epoch };
+    output = {};
+    const revision = settler.receive(currentInput);
+    currentRevision = revision;
+    const finalOutputReady = settler.require(revision);
+    currentWork = drive(revision, currentInput, finalOutputReady.satisfy);
+    // receive starts host work immediately; callers may begin waiting later.
+    void currentWork.catch(() => {});
+  }
+
+  async function drive(revision: SettlementRevision, state: HostInput, finish: () => void) {
+    await Promise.all([
+      factCheck.required(revision) ? factCheck.run(revision) : undefined,
+      styleReview.required(revision) ? styleReview.run(revision) : undefined,
+    ]);
+    if (revision !== currentRevision) return;
+    await rewriteDraft.run(revision);
+    if (revision !== currentRevision) return;
+    const facts = factCheck.emit()!;
+    const style = styleReview.emit()!;
+    const draft = rewriteDraft.emit()!;
+    const plan = buildCorrectionPlan({ factCheck: facts, styleReview: style, userIntent: state.userIntent });
+    traceCollector.started("computed", "finalResult");
+    const finalResult: FinalResult = {
+      revisedDraft: draft.text, summary: plan.actions,
+      unresolvedIssues: facts.items.filter((item) => item.verdict === "needs-review").map((item) => item.note),
+    };
+    traceCollector.completed("computed", "finalResult", { unresolvedCount: finalResult.unresolvedIssues.length });
+    output = {
+      claims: extractClaims(state.draft), factCheckResult: facts, styleReviewResult: style,
+      correctionPlan: plan, revisedDraft: draft.text, finalResult,
+    };
+    emittedFinalResult = finalResult;
+    traceCollector.emitted("effect", "finalResult", { unresolvedCount: finalResult.unresolvedIssues.length });
+    finish();
+  }
+
+  receive(initialState);
   return {
-    receive(state) {
-      batch(() => {
-        receiveEpochSignal.set((current) => current + 1);
-        draftSignal.set(state.draft);
-        userIntentSignal.set(state.userIntent);
-        styleGuideSignal.set(state.styleGuide);
-      });
-    },
-    forceReadFinalResult() {
-      finalResultComputed.get();
-    },
-    emittedFinalResultCount() {
-      return emittedFinalResultCount;
-    },
-    allResourcesSettled,
-    failedResource() {
-      return failedResource;
+    receive,
+    async settle() {
+      const revision = currentRevision;
+      try {
+        const outcome = await Promise.race([
+          settler.settle(revision), currentWork.then(() => settler.settle(revision)),
+        ]);
+        return revision === currentRevision ? outcome.status : "superseded";
+      } catch (error) {
+        if (revision !== currentRevision) return "superseded";
+        const failed = settler.inspect().resources.find((resource) => resource.status === "failed");
+        const cause = error instanceof SettlementExecutionError ? error.cause : error;
+        throw new Error(`${failed?.id ?? "correction"} failed: ${formatError(cause)}`);
+      }
     },
     resourceStatuses() {
-      return {
-        factCheckStatus: factCheckMeta.status(),
-        styleReviewStatus: styleReviewMeta.status(),
-        rewriteStatus: rewriteMeta.status(),
-      };
+      return Object.fromEntries(Object.entries(resourceStatuses()).map(([label, status]) => [`${label}Status`, status]));
     },
-    emit() {
-      const finalResult = finalResultComputed.get();
-      if (!finalResult) return {};
-
-      return {
-        claims: claimsComputed.get(),
-        factCheckResult: factCheckResult()?.value,
-        styleReviewResult: styleReviewResult()?.value,
-        correctionPlan: correctionPlanComputed.get(),
-        revisedDraft: revisedDraft()?.text,
-        finalResult,
-      };
-    },
+    emit: () => output,
     snapshot() {
-      return {
-        stableFinalResult: emittedFinalResult,
-        statuses: {
-          factCheck: factCheckMeta.status(),
-          styleReview: styleReviewMeta.status(),
-          rewriteDraft: rewriteMeta.status(),
-        },
-      };
+      return { stableFinalResult: emittedFinalResult, statuses: resourceStatuses() };
     },
   };
 
-  function allResourcesSettled() {
-    return [factCheckMeta.status(), styleReviewMeta.status(), rewriteMeta.status()].every(
-      (status) => status === "success" || status === "error" || status === "cancelled",
-    );
-  }
-
-  function recordGraphResourceEvent(label: string, event: ResourceEvent) {
-    recordResourceEvent(traceCollector, label, event);
-
-    if (event.type === "error") {
-      failedResource = {
-        label,
-        error: event.error,
-      };
+  function resourceStatuses(): CorrectionRuntimeSnapshot["statuses"] {
+    const statuses = { factCheck: "idle", styleReview: "idle", rewriteDraft: "idle" } as CorrectionRuntimeSnapshot["statuses"];
+    for (const resource of settler.inspect().resources) {
+      statuses[resource.id as keyof typeof statuses] = resource.status === "valid" ? "success" : resource.status === "failed" ? "error" : "pending";
     }
+    return statuses;
   }
 }
 
@@ -499,7 +318,6 @@ function normalizeRuntimeOptions(
       traceCollector: optionsOrTraceCollector,
       model: defaultRuntimeModel,
       settleTimeoutMs: DEFAULT_SETTLE_TIMEOUT_MS,
-      settlePollMs: DEFAULT_SETTLE_POLL_MS,
     };
   }
 
@@ -512,10 +330,6 @@ function normalizeRuntimeOptions(
     settleTimeoutMs: normalizePositiveMs(
       optionsOrTraceCollector.settleTimeoutMs,
       DEFAULT_SETTLE_TIMEOUT_MS,
-    ),
-    settlePollMs: normalizePositiveMs(
-      optionsOrTraceCollector.settlePollMs,
-      DEFAULT_SETTLE_POLL_MS,
     ),
   };
 }
@@ -613,10 +427,6 @@ function applyClaimBudget(claims: Claim[]): Claim[] {
   return claims.slice(0, DEFAULT_CLAIM_BUDGET);
 }
 
-function factCheckInputKey(claims: Claim[]) {
-  return JSON.stringify(claims);
-}
-
 function styleReviewInputKey(input: { draft: string; styleGuide?: string }) {
   return JSON.stringify([input.draft, input.styleGuide ?? null]);
 }
@@ -701,56 +511,18 @@ function correctionPlanKey(plan: CorrectionPlan) {
   return JSON.stringify(plan.actions);
 }
 
-type ResourceEvent = {
-  type: string;
-  token: number;
-  ts: number;
-  error?: unknown;
-  reason?: unknown;
-};
-
-function recordResourceEvent(
-  traceCollector: TraceCollector,
-  label: string,
-  event: ResourceEvent,
-) {
-  if (event.type === "start") {
-    traceCollector.pending("resource", label, {
-      token: event.token,
-    });
-    return;
-  }
-
-  if (event.type === "success") {
-    traceCollector.resolved("resource", label, {
-      token: event.token,
-    });
-    return;
-  }
-
-  if (event.type === "error") {
-    traceCollector.rejected("resource", label, {
-      token: event.token,
-      error: String(event.error),
-    });
-    return;
-  }
-
-  if (event.type === "cancel") {
-    traceCollector.skipped("resource", label, {
-      token: event.token,
-      reason: event.reason,
-    });
-  }
-}
-
 function formatError(error: unknown) {
   if (error instanceof Error) return error.message;
   return String(error);
 }
 
-function sleep(ms: number) {
-  return new Promise<void>((resolve) => {
-    setTimeout(resolve, ms);
-  });
+async function withHostTimeout<Value>(operation: Promise<Value>, timeoutMs: number): Promise<Value> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([operation, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("Correction runtime did not settle before timeout")), timeoutMs);
+    })]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
